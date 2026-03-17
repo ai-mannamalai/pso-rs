@@ -1,6 +1,8 @@
-use rand::{thread_rng, Rng};
+use rand::{thread_rng, Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 use std::fmt;
+
 pub type Particle = Vec<f64>;
 pub type Population = Vec<Particle>;
 
@@ -14,6 +16,7 @@ pub struct Model {
     pub population_f_scores: Vec<f64>,
     pub x_best: Particle,
     pub f_best: f64,
+    pub seed: Option<u64>,
     obj_f: fn(&Particle, usize, &Vec<usize>) -> f64,
 }
 
@@ -22,9 +25,14 @@ impl Model {
     pub fn new(
         config: Config,
         obj_f: fn(p: &Particle, flat_dim: usize, dim: &Vec<usize>) -> f64,
+        seed: Option<u64>,
     ) -> Model {
         // init population
         let mut rng = thread_rng();
+        let mut seeded_rng = ChaCha8Rng::seed_from_u64(0);
+        if let Some(seedval) = seed {
+            seeded_rng = ChaCha8Rng::seed_from_u64(seedval);
+        }
         let mut flat_dim = 1;
         for d in config.dimensions.clone() {
             flat_dim *= d;
@@ -35,13 +43,19 @@ impl Model {
             let mut particle: Particle = vec![];
             for flat_i in 0..flat_dim {
                 let true_i = flat_i % config.dimensions[config.dimensions.len() - 1];
-                particle.push(rng.gen_range(config.bounds[true_i].0..config.bounds[true_i].1));
+                if let Some(_) = seed {
+                    particle.push(rng.gen_range(config.bounds[true_i].0..config.bounds[true_i].1));
+                } else {
+                    particle.push(
+                        seeded_rng.gen_range(config.bounds[true_i].0..config.bounds[true_i].1),
+                    );
+                }
             }
             population.push(particle);
         }
         let population_f_scores = vec![f64::INFINITY; config.population_size];
         let x_best = population[0].clone();
-        let f_best = population_f_scores[0].clone();
+        let f_best = population_f_scores[0];
         let mut model = Model {
             config,
             flat_dim,
@@ -49,7 +63,8 @@ impl Model {
             population_f_scores,
             x_best,
             f_best,
-            obj_f: obj_f,
+            seed,
+            obj_f,
         };
         model.get_f_values();
         model

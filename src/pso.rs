@@ -1,6 +1,8 @@
 use crate::model::*;
 use indicatif::{ProgressBar, ProgressStyle};
-use rand::{thread_rng, Rng};
+use rand::rngs::ThreadRng;
+use rand::{thread_rng, Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
 use std::error::Error;
 use std::fs::File;
@@ -19,11 +21,14 @@ pub struct PSO {
     pub best_f_values: Vec<f64>,
     pub best_f_trajectory: Vec<f64>,
     pub best_x_trajectory: Vec<Particle>,
+    pub seed: Option<u64>,
+    pub seeded_rng: ChaCha8Rng,
+    pub rng: ThreadRng,
 }
 
 impl PSO {
     /// Initialize Particle Swarm Optimization
-    pub fn new(model: Model) -> PSO {
+    pub fn new(model: Model, seed: Option<u64>) -> PSO {
         let phi = model.config.c1 + model.config.c2;
         let phi_squared = phi.powf(2.0);
         let tmp = phi_squared - (4.0 * phi);
@@ -34,11 +39,19 @@ impl PSO {
 
         // initialize
         let mut rng = thread_rng();
+        let mut seeded_rng = ChaCha8Rng::seed_from_u64(0);
+        if let Some(seedval) = seed {
+            seeded_rng = ChaCha8Rng::seed_from_u64(seedval);
+        }
         let mut velocities = vec![];
         for _ in 0..model.config.population_size {
             let mut tmp = vec![];
             for _ in 0..model.flat_dim {
-                tmp.push(rng.gen_range(v_max * -1.0..v_max * 1.0));
+                if let Some(_) = seed {
+                    tmp.push(seeded_rng.gen_range(-v_max..v_max));
+                } else {
+                    tmp.push(rng.gen_range(-v_max..v_max));
+                }
             }
             velocities.push(tmp);
         }
@@ -58,6 +71,9 @@ impl PSO {
             neigh_population,
             best_f_trajectory,
             best_x_trajectory,
+            seed,
+            seeded_rng,
+            rng,
         }
     }
 
@@ -70,13 +86,12 @@ impl PSO {
         let mut bar: Option<ProgressBar> = None;
         if self.model.config.progress_bar {
             bar = Some(ProgressBar::new(self.model.config.t_max as u64));
-            match bar {
-                Some(ref bar) => {
-                    bar.set_style(ProgressStyle::default_bar().template(
-                        "{msg} [{elapsed}] {bar:20.cyan/blue} {pos:>7}/{len:7} ETA: {eta}",
-                    ));
+            if let Some(ref bar) = bar {
+                if let Ok(value) = ProgressStyle::default_bar()
+                    .template("{msg} [{elapsed}] {bar:20.cyan/blue} {pos:>7}/{len:7} ETA: {eta}")
+                {
+                    bar.set_style(value);
                 }
-                None => {}
             }
         }
         let mut k = 0;
@@ -91,35 +106,34 @@ impl PSO {
 
             self.model.population = self.model.population.clone();
             k += pop_size;
-            match bar {
-                Some(ref bar) => {
-                    bar.inc(pop_size as u64);
-                    bar.set_message(format!("{:.6}", self.model.f_best));
-                }
-                None => {}
+            if let Some(ref bar) = bar {
+                bar.inc(pop_size as u64);
+                bar.set_message(format!("{:.6}", self.model.f_best));
             }
             if k > self.model.config.t_max || terminate(self.model.f_best) {
                 break;
             }
         }
-        match bar {
-            Some(ref bar) => {
-                bar.finish_and_clear();
-            }
-            None => {}
+        if let Some(ref bar) = bar {
+            bar.finish_and_clear();
         }
         k
     }
 
     /// Updates the velocity and position of each particle in the population
     fn update_velocity_and_pos(&mut self) {
-        let mut rng = thread_rng();
-
         for i in 0..self.model.config.population_size {
             let lbest = &self.neigh_population[self.local_best(i)];
             for j in 0..self.model.flat_dim {
-                let r1 = rng.gen_range(-1.0..1.0);
-                let r2 = rng.gen_range(-1.0..1.0);
+                let r1: f64;
+                let r2: f64;
+                if let Some(_) = self.seed {
+                    r1 = self.seeded_rng.gen_range(-1.0..1.0);
+                    r2 = self.seeded_rng.gen_range(-1.0..1.0);
+                } else {
+                    r1 = self.rng.gen_range(-1.0..1.0);
+                    r2 = self.rng.gen_range(-1.0..1.0);
+                }
                 let cog = self.model.config.c1
                     * r1
                     * (self.neigh_population[i][j] - self.model.population[i][j]);
@@ -173,7 +187,7 @@ impl PSO {
     fn local_best(&self, i: usize) -> usize {
         let best = PSO::argsort(&self.best_f_values);
         for b in best {
-            if self.neighborhoods[i].iter().any(|&n| n == b) {
+            if self.neighborhoods[i].contains(&b) {
                 return b;
             }
         }

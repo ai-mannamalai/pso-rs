@@ -1,7 +1,6 @@
 use pso_rs::*;
 use std::process;
-const N_PARTICLES:usize = 20;
-
+const N_PARTICLES: usize = 20;
 
 fn main() {
     let dimensions = vec![N_PARTICLES, 3];
@@ -30,7 +29,7 @@ fn main() {
     };
     use std::time::Instant;
     let before = Instant::now();
-    match pso_rs::run(config, e_lj, None) {
+    match pso_rs::run(config, e_lj, None, None) {
         Ok(pso) => {
             println!("Elapsed time: {:.2?}", before.elapsed());
             pso.write_f_to_file("./best_f_trajectory.txt")

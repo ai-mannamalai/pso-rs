@@ -15,7 +15,7 @@ fn it_runs_non_parallel() {
         parallelize: false,
         ..Config::default()
     };
-    let pso = pso_rs::run(config, rosenbrock, None).unwrap();
+    let pso = pso_rs::run(config, rosenbrock, None, None).unwrap();
 
     let mut model = pso.model;
 
@@ -46,7 +46,7 @@ fn it_computes_correct_minimum_rosenbrock_2d() {
         progress_bar: false,
         ..Config::default()
     };
-    let pso = pso_rs::run(config, rosenbrock, None).unwrap();
+    let pso = pso_rs::run(config, rosenbrock, None, None).unwrap();
 
     let mut model = pso.model;
 
@@ -79,7 +79,7 @@ fn it_computes_correct_minimum_rosenbrock_3d() {
         progress_bar: false,
         ..Config::default()
     };
-    let pso = pso_rs::run(config, rosenbrock, None).unwrap();
+    let pso = pso_rs::run(config, rosenbrock, None, None).unwrap();
 
     let mut model = pso.model;
 
@@ -139,7 +139,7 @@ fn it_computes_correct_minimum_e_lj() {
         ..Config::default()
     };
 
-    let pso = pso_rs::run(config, e_lj, Some(|_| true)).unwrap();
+    let pso = pso_rs::run(config, e_lj, Some(|_| true), None).unwrap();
 
     let mut model = pso.model;
 

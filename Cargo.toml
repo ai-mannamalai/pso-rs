@@ -17,7 +17,8 @@ exclude = [
 
 [dependencies]
 rand = "^0.8.4"
-indicatif = "^0.16.2"
+rand_chacha = "^0.3"
+indicatif = "^0.18.4"
 rayon = "^1.5.1"
 
 # [profile.release]

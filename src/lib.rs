@@ -50,7 +50,8 @@
 //! let pso = pso_rs::run(
 //!     config,
 //!     objective_function,
-//!     Some(terminate)
+//!     Some(terminate),
+//!     None,
 //! ).unwrap();
 //!     
 //! let model = pso.model;
@@ -84,7 +85,8 @@
 //!
 //! let mut pso = pso_rs::init(
 //!     config,
-//!     objective_function
+//!     objective_function,
+//!     None,
 //! ).unwrap();
 //!
 //! // run PSO with no termination condition
@@ -94,6 +96,27 @@
 //! println!("Found minimum: {:#?} ", model.get_f_best());
 //! println!("Minimizer: {:#?}", model.get_x_best());
 //! ```
+//! //example shows how to use lambda functions to model objective
+//! fn main() {
+//!    let config = Config {
+//!        dimensions: vec![N_DIMENSIONS],
+//!        population_size: 100,
+//!        bounds: vec![(-10.0, 10.0); N_DIMENSIONS],
+//!        t_max: 1e7 as usize,
+//!        ..Config::default()
+//!    };
+//!    use std::time::Instant;
+//!    let before = Instant::now();
+//!    let xsum_squares = |p: &Particle, _flat_dim: usize, dimensions: &Vec<usize>| -> f64 {
+//!         (0..dimensions[0]).map(|i| i as f64 * p[i].powf(2.0)).sum()
+//!     };
+//!     
+//!    let pso = pso_rs::run(config, xsum_squares, Some(|f_best| f_best < 1e-4),Some(123456u64)).unwrap();
+//!    println!("Elapsed time: {:.2?}", before.elapsed());
+//!    let model = pso.model;
+//!    println!("Found minimum: {:#?} ", model.get_f_best());
+//!    println!("Found minimizer: {:#?} ", model.get_x_best());
+//! }
 //!
 //! # Notes
 //!
@@ -151,6 +174,7 @@
 //! let pso = pso_rs::run(
 //!     config,
 //!     objective_function,
+//!     None,
 //!     None
 //! ).unwrap();
 //!
@@ -167,7 +191,6 @@ pub mod pso;
 
 pub use model::*;
 
-use model::Model;
 use pso::PSO;
 use std::error::Error;
 
@@ -180,9 +203,10 @@ pub fn run(
     config: Config,
     obj_f: fn(&Particle, usize, &Vec<usize>) -> f64,
     terminate_f: Option<fn(f64) -> bool>,
+    seed: Option<u64>,
 ) -> Result<PSO, Box<dyn Error>> {
     assert_config(&config)?;
-    let mut pso = init(config, obj_f).unwrap();
+    let mut pso = init(config, obj_f, seed).unwrap();
     let term_condition = match terminate_f {
         Some(terminate_f) => terminate_f,
         None => |_| false,
@@ -197,10 +221,11 @@ pub fn run(
 pub fn init(
     config: Config,
     obj_f: fn(&Particle, usize, &Vec<usize>) -> f64,
+    seed: Option<u64>,
 ) -> Result<PSO, &'static str> {
     assert_config(&config)?;
-    let model = Model::new(config, obj_f);
-    let pso = PSO::new(model);
+    let model = Model::new(config, obj_f, seed);
+    let pso = PSO::new(model, seed);
     Ok(pso)
 }
 
@@ -208,7 +233,7 @@ fn assert_config(config: &Config) -> Result<(), &'static str> {
     if config.c1 + config.c2 < 4.0 {
         return Err("c1 + c2 must be greater than 4");
     }
-    if config.dimensions.len() == 0 {
+    if config.dimensions.is_empty() {
         return Err("dimensions must be set");
     }
     if config.bounds.len() != config.dimensions[config.dimensions.len() - 1] {

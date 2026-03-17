@@ -1,6 +1,6 @@
 use pso_rs::*;
 
-const N_DIMENSIONS:usize = 3;
+const N_DIMENSIONS: usize = 3;
 
 fn main() {
     let config = Config {
@@ -12,7 +12,14 @@ fn main() {
     };
     use std::time::Instant;
     let before = Instant::now();
-    let pso = pso_rs::run(config, sum_squares, Some(|f_best| f_best < 1e-4)).unwrap();
+
+    let pso = pso_rs::run(
+        config,
+        sum_squares,
+        Some(|f_best| f_best < 1e-4),
+        Some(123456u64),
+    )
+    .unwrap();
     println!("Elapsed time: {:.2?}", before.elapsed());
     let model = pso.model;
     println!("Found minimum: {:#?} ", model.get_f_best());
