@@ -13,10 +13,17 @@ fn main() {
     use std::time::Instant;
     let before = Instant::now();
 
-    let pso = pso_rs::run(
+    let pso: pso::PSO = pso_rs::run(
         config,
         sum_squares,
-        Some(|f_best| f_best < 1e-4),
+        Some(|f| {
+            let mut r: Vec<NumericKind> = vec![];
+            for ff in f {
+                r.push(NumericKind::ValueF64(*ff));
+            }
+            r
+        }),
+        None,
         Some(123456u64),
     )
     .unwrap();
@@ -26,6 +33,8 @@ fn main() {
     println!("Found minimizer: {:#?} ", model.get_x_best());
 }
 
-fn sum_squares(p: &Particle, _flat_dim: usize, dimensions: &Vec<usize>) -> f64 {
-    (0..dimensions[0]).map(|i| i as f64 * p[i].powf(2.0)).sum()
+fn sum_squares(p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
+    (0..dimensions[0])
+        .map(|i| i as f64 * p[i].value_f64().powf(2.0))
+        .sum()
 }

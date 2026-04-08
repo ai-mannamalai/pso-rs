@@ -33,9 +33,9 @@ impl PSO {
         let phi_squared = phi.powf(2.0);
         let tmp = phi_squared - (4.0 * phi);
         let tmp = tmp.sqrt();
-        let chi = 2.0 / (2.0 - phi - tmp).abs();
+        let chi = ((2.0 / (2.0 - phi - tmp)) as f64).abs();
         let v_max = model.config.alpha * 5.0;
-        let neighborhoods = PSO::create_neighborhoods(&model);
+        let neighborhoods = Self::create_neighborhoods(&model);
 
         // initialize
         let mut rng = thread_rng();
@@ -48,18 +48,20 @@ impl PSO {
             let mut tmp = vec![];
             for _ in 0..model.flat_dim {
                 if let Some(_) = seed {
-                    tmp.push(seeded_rng.gen_range(-v_max..v_max));
+                    tmp.push(NumericKind::ValueF64(seeded_rng.gen_range(-v_max..v_max)));
                 } else {
-                    tmp.push(rng.gen_range(-v_max..v_max));
+                    tmp.push(NumericKind::ValueF64(rng.gen_range(-v_max..v_max)));
                 }
             }
             velocities.push(tmp);
         }
 
         let best_f_values = model.population_f_scores.clone();
-        let neigh_population = model.population.clone();
-        let best_f_trajectory = vec![model.f_best];
-        let best_x_trajectory = vec![model.x_best.clone()];
+        let neigh_population = (0..model.population_f_scores.len())
+            .map(|idx| model.population[idx].clone())
+            .collect();
+        let best_f_trajectory = vec![model.get_f_best()];
+        let best_x_trajectory = vec![model.get_x_best()];
 
         PSO {
             chi,
@@ -124,6 +126,7 @@ impl PSO {
     fn update_velocity_and_pos(&mut self) {
         for i in 0..self.model.config.population_size {
             let lbest = &self.neigh_population[self.local_best(i)];
+            #[allow(clippy::needless_range_loop)]
             for j in 0..self.model.flat_dim {
                 let r1: f64;
                 let r2: f64;
@@ -136,32 +139,37 @@ impl PSO {
                 }
                 let cog = self.model.config.c1
                     * r1
-                    * (self.neigh_population[i][j] - self.model.population[i][j]);
+                    * (self.neigh_population[i][j] - self.model.population[i][j]).value_f64();
 
-                let soc = self.model.config.c2 * r2 * (lbest[j] - self.model.population[i][j]);
-                let v = self.chi * (self.velocities[i][j] + cog + soc);
+                let soc = self.model.config.c2
+                    * r2
+                    * ((lbest[j] - self.model.population[i][j]).value_f64());
+                let v = self.chi * (self.velocities[i][j].value_f64() + cog + soc);
 
                 // check bounds
-                self.velocities[i][j] = if v.abs() > self.v_max {
+                self.velocities[i][j] = NumericKind::ValueF64(if v.abs() > self.v_max {
                     v.signum() * self.v_max
                 } else {
                     v
-                };
+                });
 
-                let x = self.model.population[i][j] + self.model.config.lr * self.velocities[i][j];
+                let x = NumericKind::ValueF64(
+                    self.model.population[i][j].value_f64()
+                        + self.model.config.lr * self.velocities[i][j].value_f64(),
+                );
 
                 let bound_index =
                     j % self.model.config.dimensions[self.model.config.dimensions.len() - 1];
                 let (lower_bound, upper_bound) = self.model.config.bounds[bound_index];
                 // check bounds
-                if x > upper_bound {
-                    self.model.population[i][j] = upper_bound;
-                } else if x < lower_bound {
-                    self.model.population[i][j] = lower_bound;
+                if x.value_f64() > upper_bound {
+                    self.model.population[i][j] = NumericKind::ValueF64(upper_bound);
+                } else if x.value_f64() < lower_bound {
+                    self.model.population[i][j] = NumericKind::ValueF64(lower_bound);
                 } else {
                     self.model.population[i][j] = x;
                 }
-                if x.is_nan() {
+                if x.value_f64().is_nan() {
                     panic!("A coefficient became NaN!");
                 }
             }
@@ -171,7 +179,7 @@ impl PSO {
     /// Updates the best found positions
     fn update_best_positions(&mut self) {
         for i in 0..self.best_f_values.len() {
-            let new = self.model.population_f_scores[i];
+            let new = self.model.get_f_values()[i];
             let old = self.best_f_values[i];
 
             if new < old {
@@ -179,8 +187,8 @@ impl PSO {
                 self.neigh_population[i] = self.model.population[i].clone();
             }
         }
-        self.best_f_trajectory.push(self.model.f_best);
-        self.best_x_trajectory.push(self.model.x_best.clone());
+        self.best_f_trajectory.push(self.model.get_f_best());
+        self.best_x_trajectory.push(self.model.get_x_best().clone());
     }
 
     /// Returns the neighborhood local best
@@ -230,7 +238,7 @@ impl PSO {
     }
 
     /// Returns the indices that would sort a vector
-    fn argsort(v: &Vec<f64>) -> Vec<usize> {
+    fn argsort(v: &[f64]) -> Vec<usize> {
         let mut idx = (0..v.len()).collect::<Vec<_>>();
         idx.sort_by(|&i, &j| v[i].partial_cmp(&v[j]).expect("NaN"));
         idx
@@ -259,7 +267,7 @@ impl PSO {
             .iter()
             .map(|x| {
                 x.iter()
-                    .map(|coef: &f64| coef.to_string())
+                    .map(|coef| coef.to_string())
                     .collect::<Vec<String>>()
                     .join(", ")
             })

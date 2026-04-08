@@ -29,7 +29,7 @@ fn main() {
     };
     use std::time::Instant;
     let before = Instant::now();
-    match pso_rs::run(config, e_lj, None, None) {
+    match pso_rs::run(config, e_lj, None, None, None) {
         Ok(pso) => {
             println!("Elapsed time: {:.2?}", before.elapsed());
             pso.write_f_to_file("./best_f_trajectory.txt")
@@ -61,7 +61,7 @@ fn l2(x_i: Particle, x_j: Particle, particle_dim: usize) -> f64 {
     // calculated as the square root of the sum of the squared vector values
     let mut sum: f64 = 0.0;
     for i in 0..particle_dim {
-        sum += (x_i[i] - x_j[i]).powf(2.0);
+        sum += (x_i[i] - x_j[i]).value_f64().powf(2.0);
     }
     sum.sqrt()
 }
@@ -73,7 +73,7 @@ fn v_ij(x_i: Particle, x_j: Particle, particle_dim: usize) -> f64 {
 }
 
 /// Get potential energy of a cluster of particles
-fn e_lj(particle: &Particle, _flat_dim: usize, particle_dims: &Vec<usize>) -> f64 {
+fn e_lj(particle: &Particle, _flat_dim: usize, particle_dims: &[usize]) -> f64 {
     let mut sum = 0.0;
     for i in 0..particle_dims[0] - 1 {
         for j in (i + 1)..particle_dims[0] {
@@ -89,7 +89,7 @@ fn e_lj(particle: &Particle, _flat_dim: usize, particle_dims: &Vec<usize>) -> f6
     4.0 * sum
 }
 
-fn reshape(particle: &Particle, particle_dims: &Vec<usize>) -> Vec<Vec<f64>> {
+fn reshape(particle: &Particle, particle_dims: &[usize]) -> Vec<Vec<NumericKind>> {
     // reshape particle
     let mut reshaped_cluster = vec![];
     let mut i = 0;

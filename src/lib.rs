@@ -23,11 +23,11 @@
 //! fn objective_function(
 //!     p: &Particle,
 //!     _flat_dim: usize,
-//!     dimensions: &Vec<usize>
+//!     dimensions: &[usize]
 //! ) -> f64 {
 //!     (0..dimensions[0] - 1).map(|i| {
-//!         100.0 * ((p[i+1]-p[i]).powf(2.0)).powf(2.0)
-//!             + (1.0-p[i]).powf(2.0)
+//!         100.0 * ((p[i+1]-p[i]).value_f64().powf(2.0)).powf(2.0)
+//!             + (1.0-p[i].value_f64()).powf(2.0)
 //!     }).sum()
 //! }
 //!
@@ -50,8 +50,9 @@
 //! let pso = pso_rs::run(
 //!     config,
 //!     objective_function,
-//!     Some(terminate),
 //!     None,
+//!     Some(terminate),
+//!     None
 //! ).unwrap();
 //!     
 //! let model = pso.model;
@@ -67,11 +68,11 @@
 //! fn objective_function(
 //!     p: &Particle,
 //!     _flat_dim: usize,
-//!     dimensions: &Vec<usize>
+//!     dimensions: &[usize]
 //! ) -> f64 {
 //!     (0..dimensions[0] - 1).map(|i| {
-//!         100.0 * ((p[i+1]-p[i]).powf(2.0)).powf(2.0)
-//!             + (1.0-p[i]).powf(2.0)
+//!         100.0 * ((p[i+1]-p[i]).value_f64().powf(2.0)).powf(2.0)
+//!             + (1.0-p[i].value_f64()).powf(2.0)
 //!     }).sum()
 //! }
 //!
@@ -87,6 +88,7 @@
 //!     config,
 //!     objective_function,
 //!     None,
+//!     None
 //! ).unwrap();
 //!
 //! // run PSO with no termination condition
@@ -107,11 +109,11 @@
 //!    };
 //!    use std::time::Instant;
 //!    let before = Instant::now();
-//!    let xsum_squares = |p: &Particle, _flat_dim: usize, dimensions: &Vec<usize>| -> f64 {
+//!    let xsum_squares = |p: &Particle, _flat_dim: usize, dimensions: &[usize]| -> f64 {
 //!         (0..dimensions[0]).map(|i| i as f64 * p[i].powf(2.0)).sum()
 //!     };
 //!     
-//!    let pso = pso_rs::run(config, xsum_squares, Some(|f_best| f_best < 1e-4),Some(123456u64)).unwrap();
+//!    let pso = pso_rs::run(config, xsum_squares, None, Some(|f_best| f_best < 1e-4),Some(123456u64)).unwrap();
 //!    println!("Elapsed time: {:.2?}", before.elapsed());
 //!    let model = pso.model;
 //!    println!("Found minimum: {:#?} ", model.get_f_best());
@@ -138,8 +140,8 @@
 //!
 //! fn reshape(
 //!     particle: &Particle,
-//!     particle_dims: &Vec<usize>
-//! ) -> Vec<Vec<f64>> {
+//!     particle_dims: &[usize]
+//! ) -> Vec<Vec<NumericKind>> {
 //!     let mut reshaped_cluster = vec![];
 //!     let mut i = 0;
 //!     for _ in 0..particle_dims[0] {
@@ -157,7 +159,7 @@
 //! fn objective_function(
 //!     p: &Particle,
 //!     _flat_dim: usize,
-//!     dimensions: &Vec<usize>
+//!     dimensions: &[usize]
 //! ) -> f64 {
 //!     let _reshaped_particle = reshape(p, dimensions);
 //!     /* Do stuff */
@@ -174,6 +176,7 @@
 //! let pso = pso_rs::run(
 //!     config,
 //!     objective_function,
+//!     None,
 //!     None,
 //!     None
 //! ).unwrap();
@@ -201,12 +204,13 @@ use std::error::Error;
 /// Panics if any particle coefficient becomes NaN (usually because of bad parameterization, e.g. c1 + c2 < 4)
 pub fn run(
     config: Config,
-    obj_f: fn(&Particle, usize, &Vec<usize>) -> f64,
+    obj_f: fn(&Particle, usize, &[usize]) -> f64,
+    cast_f: Option<fn(&Vec<f64>) -> Vec<NumericKind>>,
     terminate_f: Option<fn(f64) -> bool>,
     seed: Option<u64>,
 ) -> Result<PSO, Box<dyn Error>> {
     assert_config(&config)?;
-    let mut pso = init(config, obj_f, seed).unwrap();
+    let mut pso = init(config, obj_f, cast_f, seed).unwrap();
     let term_condition = match terminate_f {
         Some(terminate_f) => terminate_f,
         None => |_| false,
@@ -220,11 +224,12 @@ pub fn run(
 /// Useful for initializing an instance for running at a later time
 pub fn init(
     config: Config,
-    obj_f: fn(&Particle, usize, &Vec<usize>) -> f64,
+    obj_f: fn(&Particle, usize, &[usize]) -> f64,
+    cast_f: Option<fn(&Vec<f64>) -> Vec<NumericKind>>,
     seed: Option<u64>,
 ) -> Result<PSO, &'static str> {
     assert_config(&config)?;
-    let model = Model::new(config, obj_f, seed);
+    let model = Model::new(config, obj_f, cast_f, seed);
     let pso = PSO::new(model, seed);
     Ok(pso)
 }
