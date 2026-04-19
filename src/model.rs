@@ -11,13 +11,14 @@ pub enum NumericKind {
     ValueI32(i32),
 }
 
-impl ToString for NumericKind {
-    fn to_string(&self) -> String {
-        match self {
+impl std::fmt::Display for NumericKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let strval = match self {
             NumericKind::ValueF64(v) => v.to_string(),
             NumericKind::ValueBool(v) => v.to_string(),
             NumericKind::ValueI32(v) => v.to_string(),
-        }
+        };
+        write!(f, "{}", strval)
     }
 }
 
@@ -25,15 +26,9 @@ impl Mul for NumericKind {
     type Output = Self;
     fn mul(self, other: Self) -> Self {
         match self {
-            NumericKind::ValueF64(v) => NumericKind::ValueF64 {
-                0: v * other.value_f64(),
-            },
-            NumericKind::ValueBool(v) => NumericKind::ValueBool {
-                0: v && other.value_bool(),
-            },
-            NumericKind::ValueI32(v) => NumericKind::ValueI32 {
-                0: v * other.value_i32(),
-            },
+            NumericKind::ValueF64(v) => NumericKind::ValueF64(v * other.value_f64()),
+            NumericKind::ValueBool(v) => NumericKind::ValueBool(v && other.value_bool()),
+            NumericKind::ValueI32(v) => NumericKind::ValueI32(v * other.value_i32()),
         }
     }
 }
@@ -42,15 +37,9 @@ impl Add for NumericKind {
     type Output = Self;
     fn add(self, other: Self) -> Self {
         match self {
-            NumericKind::ValueF64(v) => NumericKind::ValueF64 {
-                0: v + other.value_f64(),
-            },
-            NumericKind::ValueBool(v) => NumericKind::ValueBool {
-                0: v || other.value_bool(),
-            },
-            NumericKind::ValueI32(v) => NumericKind::ValueI32 {
-                0: v + other.value_i32(),
-            },
+            NumericKind::ValueF64(v) => NumericKind::ValueF64(v + other.value_f64()),
+            NumericKind::ValueBool(v) => NumericKind::ValueBool(v || other.value_bool()),
+            NumericKind::ValueI32(v) => NumericKind::ValueI32(v + other.value_i32()),
         }
     }
 }
@@ -59,15 +48,9 @@ impl Sub for NumericKind {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
         match self {
-            NumericKind::ValueF64(v) => NumericKind::ValueF64 {
-                0: v - other.value_f64(),
-            },
-            NumericKind::ValueBool(v) => NumericKind::ValueBool {
-                0: v ^ other.value_bool(),
-            },
-            NumericKind::ValueI32(v) => NumericKind::ValueI32 {
-                0: v - other.value_i32(),
-            },
+            NumericKind::ValueF64(v) => NumericKind::ValueF64(v - other.value_f64()),
+            NumericKind::ValueBool(v) => NumericKind::ValueBool(v ^ other.value_bool()),
+            NumericKind::ValueI32(v) => NumericKind::ValueI32(v - other.value_i32()),
         }
     }
 }
@@ -88,7 +71,7 @@ impl NumericKind {
         match self {
             NumericKind::ValueF64(v) => *v as i32 != 0,
             NumericKind::ValueBool(v) => *v,
-            NumericKind::ValueI32(v) => *v as i32 != 0,
+            NumericKind::ValueI32(v) => *v != 0,
         }
     }
 
@@ -101,6 +84,8 @@ impl NumericKind {
     }
 }
 
+pub type CastFunctionT = fn(p: &Vec<f64>) -> Vec<NumericKind>;
+
 /// Model struct
 ///
 /// It takes in a `Config` instance and `fn` pointer to an objective function and defines a `run` method for running Particle Swarm Optimization.
@@ -112,8 +97,8 @@ pub struct Model {
     pub x_best: Particle,
     pub f_best: f64,
     pub seed: Option<u64>,
-    obj_f: fn(&Particle, usize, &[usize]) -> f64,
-    cast_f: Option<fn(&Vec<f64>) -> Vec<NumericKind>>, /* cast Particle -> Particle */
+    pub obj_f: fn(&Particle, usize, &[usize]) -> f64,
+    pub cast_f: Option<CastFunctionT>, /* cast Particle -> Particle */
 }
 
 impl Model {
@@ -121,7 +106,7 @@ impl Model {
     pub fn new(
         config: Config,
         obj_f: fn(p: &Particle, flat_dim: usize, dim: &[usize]) -> f64,
-        cast_f: Option<fn(p: &Vec<f64>) -> Vec<NumericKind>>,
+        cast_f: Option<CastFunctionT>,
         seed: Option<u64>,
     ) -> Model {
         // init population
@@ -140,7 +125,7 @@ impl Model {
             let mut particle: Particle = vec![];
             for flat_i in 0..flat_dim {
                 let true_i = flat_i % config.dimensions[config.dimensions.len() - 1];
-                if let Some(_) = seed {
+                if seed.is_some() {
                     particle.push(NumericKind::ValueF64(
                         rng.gen_range(config.bounds[true_i].0..config.bounds[true_i].1),
                     ));

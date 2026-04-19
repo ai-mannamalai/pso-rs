@@ -205,12 +205,12 @@ use std::error::Error;
 pub fn run(
     config: Config,
     obj_f: fn(&Particle, usize, &[usize]) -> f64,
-    cast_f: Option<fn(&Vec<f64>) -> Vec<NumericKind>>,
+    cast_f: Option<CastFunctionT>,
     terminate_f: Option<fn(f64) -> bool>,
     seed: Option<u64>,
 ) -> Result<PSO, Box<dyn Error>> {
     assert_config(&config)?;
-    let mut pso = init(config, obj_f, cast_f, seed).unwrap();
+    let mut pso = init(config, obj_f, cast_f, seed)?;
     let term_condition = match terminate_f {
         Some(terminate_f) => terminate_f,
         None => |_| false,
@@ -225,7 +225,7 @@ pub fn run(
 pub fn init(
     config: Config,
     obj_f: fn(&Particle, usize, &[usize]) -> f64,
-    cast_f: Option<fn(&Vec<f64>) -> Vec<NumericKind>>,
+    cast_f: Option<CastFunctionT>,
     seed: Option<u64>,
 ) -> Result<PSO, &'static str> {
     assert_config(&config)?;

@@ -33,7 +33,7 @@ impl PSO {
         let phi_squared = phi.powf(2.0);
         let tmp = phi_squared - (4.0 * phi);
         let tmp = tmp.sqrt();
-        let chi = ((2.0 / (2.0 - phi - tmp)) as f64).abs();
+        let chi = 2.0 / (2.0 - phi - tmp);
         let v_max = model.config.alpha * 5.0;
         let neighborhoods = Self::create_neighborhoods(&model);
 
@@ -47,7 +47,7 @@ impl PSO {
         for _ in 0..model.config.population_size {
             let mut tmp = vec![];
             for _ in 0..model.flat_dim {
-                if let Some(_) = seed {
+                if seed.is_some() {
                     tmp.push(NumericKind::ValueF64(seeded_rng.gen_range(-v_max..v_max)));
                 } else {
                     tmp.push(NumericKind::ValueF64(rng.gen_range(-v_max..v_max)));
@@ -130,7 +130,7 @@ impl PSO {
             for j in 0..self.model.flat_dim {
                 let r1: f64;
                 let r2: f64;
-                if let Some(_) = self.seed {
+                if self.seed.is_some() {
                     r1 = self.seeded_rng.gen_range(-1.0..1.0);
                     r2 = self.seeded_rng.gen_range(-1.0..1.0);
                 } else {
