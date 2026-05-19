@@ -8,6 +8,7 @@ fn main() {
         population_size: 100,
         bounds: vec![(-10.0, 10.0); N_DIMENSIONS],
         t_max: 1e7 as usize,
+        parallelize: true,
         ..Config::default()
     };
     use std::time::Instant;
@@ -23,7 +24,7 @@ fn main() {
             }
             r
         }),
-        None,
+        Some(|f_best| f_best < 1e-4),
         Some(123456u64),
     )
     .unwrap();

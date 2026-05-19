@@ -33,7 +33,7 @@ impl PSO {
         let phi_squared = phi.powf(2.0);
         let tmp = phi_squared - (4.0 * phi);
         let tmp = tmp.sqrt();
-        let chi = 2.0 / (2.0 - phi - tmp);
+        let chi = 2.0 / (2.0 - phi - tmp).abs();
         let v_max = model.config.alpha * 5.0;
         let neighborhoods = Self::create_neighborhoods(&model);
 
@@ -103,8 +103,8 @@ impl PSO {
             self.update_velocity_and_pos();
 
             // Evaluate & update best
-            self.model.get_f_values();
-            self.update_best_positions();
+            let new_best_f_values = self.model.get_f_values();
+            self.update_best_positions(&new_best_f_values);
 
             self.model.population = self.model.population.clone();
             k += pop_size;
@@ -137,6 +137,7 @@ impl PSO {
                     r1 = self.rng.gen_range(-1.0..1.0);
                     r2 = self.rng.gen_range(-1.0..1.0);
                 }
+
                 let cog = self.model.config.c1
                     * r1
                     * (self.neigh_population[i][j] - self.model.population[i][j]).value_f64();
@@ -177,13 +178,11 @@ impl PSO {
     }
 
     /// Updates the best found positions
-    fn update_best_positions(&mut self) {
-        for i in 0..self.best_f_values.len() {
-            let new = self.model.get_f_values()[i];
-            let old = self.best_f_values[i];
-
-            if new < old {
-                self.best_f_values[i] = new;
+    fn update_best_positions(&mut self, new_best_f_values: &Vec<f64>) {
+        for (i, old) in self.best_f_values.iter_mut().enumerate() {
+            let new = new_best_f_values[i];
+            if new < *old {
+                *old = new;
                 self.neigh_population[i] = self.model.population[i].clone();
             }
         }
@@ -224,14 +223,14 @@ impl PSO {
                 }
             }
             NeighborhoodType::Gbest => {
-                neighborhoods = vec![];
-                for _ in 0..model.config.population_size {
-                    let mut tmp = vec![];
-                    for j in 0..model.config.population_size {
-                        tmp.push(j);
-                    }
-                    neighborhoods.push(tmp);
-                }
+                neighborhoods = (0..model.config.population_size)
+                    .into_iter()
+                    .map(|_| {
+                        (0..model.config.population_size)
+                            .into_iter()
+                            .collect::<Vec<usize>>()
+                    })
+                    .collect::<Vec<Vec<usize>>>();
             }
         }
         neighborhoods

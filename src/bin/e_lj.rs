@@ -25,6 +25,7 @@ fn main() {
         lr,
         bounds,
         t_max,
+        parallelize: true,
         ..Config::default()
     };
     use std::time::Instant;
