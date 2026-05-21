@@ -20,17 +20,15 @@
 //! use pso_rs::*;
 //!
 //! // define objective function (d-dimensional Rosenbrock)
-//! fn objective_function(
-//!     p: &Particle,
-//!     _flat_dim: usize,
-//!     dimensions: &[usize]
-//! ) -> f64 {
-//!     (0..dimensions[0] - 1).map(|i| {
+//! struct ObjectiveObj;
+//! impl ObjectiveFunction for ObjectiveObj {
+//!     fn evaluate(&self, p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
+//!         (0..dimensions[0] - 1).map(|i| {
 //!         100.0 * ((p[i+1]-p[i]).value_f64().powf(2.0)).powf(2.0)
 //!             + (1.0-p[i].value_f64()).powf(2.0)
 //!     }).sum()
+//!     }
 //! }
-//!
 //! // define a termination condition (optional)
 //! fn terminate(f_best: f64) -> bool {
 //!     f_best - (0.0) < 1e-4
@@ -49,7 +47,7 @@
 //!
 //! let pso = pso_rs::run(
 //!     config,
-//!     objective_function,
+//!     Box::new(ObjectiveObj{}),
 //!     None,
 //!     Some(terminate),
 //!     None
@@ -65,17 +63,15 @@
 //! use pso_rs::*;
 //!
 //! // define objective function (d-dimensional Rosenbrock)
-//! fn objective_function(
-//!     p: &Particle,
-//!     _flat_dim: usize,
-//!     dimensions: &[usize]
-//! ) -> f64 {
+//! struct ObjectiveObj;
+//! impl ObjectiveFunction for ObjectiveObj {
+//!     fn evaluate(&self, p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
 //!     (0..dimensions[0] - 1).map(|i| {
 //!         100.0 * ((p[i+1]-p[i]).value_f64().powf(2.0)).powf(2.0)
 //!             + (1.0-p[i].value_f64()).powf(2.0)
 //!     }).sum()
+//!  }
 //! }
-//!
 //!
 //! let config = Config {
 //!     dimensions: vec![2],
@@ -86,7 +82,7 @@
 //!
 //! let mut pso = pso_rs::init(
 //!     config,
-//!     objective_function,
+//!     Box::new(ObjectiveObj{}),
 //!     None,
 //!     None
 //! ).unwrap();
@@ -98,6 +94,13 @@
 //! println!("Found minimum: {:#?} ", model.get_f_best());
 //! println!("Minimizer: {:#?}", model.get_x_best());
 //! ```
+//! struct XSumSquares;
+//! impl ObjectiveFunction for XSumSquares {
+//!    fn evaluate(&self, particle: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
+//!         (0..dimensions[0]).map(|i| i as f64 * particle[i].powf(2.0)).sum()
+//!    };
+//! }
+//!
 //! //example shows how to use lambda functions to model objective
 //! fn main() {
 //!    let config = Config {
@@ -109,11 +112,8 @@
 //!    };
 //!    use std::time::Instant;
 //!    let before = Instant::now();
-//!    let xsum_squares = |p: &Particle, _flat_dim: usize, dimensions: &[usize]| -> f64 {
-//!         (0..dimensions[0]).map(|i| i as f64 * p[i].powf(2.0)).sum()
-//!     };
 //!     
-//!    let pso = pso_rs::run(config, xsum_squares, None, Some(|f_best| f_best < 1e-4),Some(123456u64)).unwrap();
+//!    let pso = pso_rs::run(config, Box::new(XSumSquares), None, Some(|f_best| f_best < 1e-4),Some(123456u64)).unwrap();
 //!    println!("Elapsed time: {:.2?}", before.elapsed());
 //!    let model = pso.model;
 //!    println!("Found minimum: {:#?} ", model.get_f_best());
@@ -156,16 +156,19 @@
 //! }
 //!
 //! // used in the objective function
-//! fn objective_function(
-//!     p: &Particle,
+//! struct ObjectiveObj;
+//! impl ObjectiveFunction for ObjectiveObj {
+//! fn evaluate(
+//!     &self,
+//!     particle: &Particle,
 //!     _flat_dim: usize,
 //!     dimensions: &[usize]
 //! ) -> f64 {
-//!     let _reshaped_particle = reshape(p, dimensions);
+//!     let _reshaped_particle = reshape(particle, dimensions);
 //!     /* Do stuff */
 //!     0.0
 //! }
-//!
+//! }
 //! let config = Config {
 //!     dimensions: vec![20, 3],
 //!     bounds: vec![(-2.5, 2.5); 3],
@@ -175,7 +178,7 @@
 //!
 //! let pso = pso_rs::run(
 //!     config,
-//!     objective_function,
+//!     Box::new(ObjectiveObj{}),
 //!     None,
 //!     None,
 //!     None
@@ -204,7 +207,7 @@ use std::error::Error;
 /// Panics if any particle coefficient becomes NaN (usually because of bad parameterization, e.g. c1 + c2 < 4)
 pub fn run(
     config: Config,
-    obj_f: fn(&Particle, usize, &[usize]) -> f64,
+    obj_f: Box<dyn ObjectiveFunction>,
     cast_f: Option<CastFunctionT>,
     terminate_f: Option<fn(f64) -> bool>,
     seed: Option<u64>,
@@ -224,7 +227,7 @@ pub fn run(
 /// Useful for initializing an instance for running at a later time
 pub fn init(
     config: Config,
-    obj_f: fn(&Particle, usize, &[usize]) -> f64,
+    obj_f: Box<dyn ObjectiveFunction>,
     cast_f: Option<CastFunctionT>,
     seed: Option<u64>,
 ) -> Result<PSO, &'static str> {

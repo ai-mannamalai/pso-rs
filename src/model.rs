@@ -11,6 +11,24 @@ pub enum NumericKind {
     ValueI32(i32),
 }
 
+impl From<f64> for NumericKind {
+    fn from(value: f64) -> Self {
+        NumericKind::ValueF64(value)
+    }
+}
+
+impl From<bool> for NumericKind {
+    fn from(value: bool) -> Self {
+        NumericKind::ValueBool(value)
+    }
+}
+
+impl From<i32> for NumericKind {
+    fn from(value: i32) -> Self {
+        NumericKind::ValueI32(value)
+    }
+}
+
 impl std::fmt::Display for NumericKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let strval = match self {
@@ -86,6 +104,10 @@ impl NumericKind {
 
 pub type CastFunctionT = fn(p: &Vec<f64>) -> Vec<NumericKind>;
 
+pub trait ObjectiveFunction: Send + Sync {
+    fn evaluate(&self, p: &Particle, flat_dim: usize, dimensions: &[usize]) -> f64;
+}
+
 /// Model struct
 ///
 /// It takes in a `Config` instance and `fn` pointer to an objective function and defines a `run` method for running Particle Swarm Optimization.
@@ -97,7 +119,7 @@ pub struct Model {
     pub x_best: Particle,
     pub f_best: f64,
     pub seed: Option<u64>,
-    pub obj_f: fn(&Particle, usize, &[usize]) -> f64,
+    pub obj_f: Box<dyn ObjectiveFunction>,
     pub cast_f: Option<CastFunctionT>, /* cast Particle -> Particle */
 }
 
@@ -105,7 +127,7 @@ impl Model {
     /// Creates a new Model instance
     pub fn new(
         config: Config,
-        obj_f: fn(p: &Particle, flat_dim: usize, dim: &[usize]) -> f64,
+        obj_f: Box<dyn ObjectiveFunction>,
         cast_f: Option<CastFunctionT>,
         seed: Option<u64>,
     ) -> Model {
@@ -175,7 +197,7 @@ impl Model {
             let iter = self.population.par_iter();
             self.population_f_scores = iter
                 .map(|particle| {
-                    (self.obj_f)(particle, self.flat_dim, &self.config.dimensions)
+                    (*self.obj_f).evaluate(particle, self.flat_dim, &self.config.dimensions)
                     // self.population_f_scores[i] = f_score;
                 })
                 .collect();
@@ -183,7 +205,7 @@ impl Model {
             let iter = self.population.iter();
             self.population_f_scores = iter
                 .map(|particle| {
-                    (self.obj_f)(particle, self.flat_dim, &self.config.dimensions)
+                    (*self.obj_f).evaluate(particle, self.flat_dim, &self.config.dimensions)
                     // self.population_f_scores[i] = f_score;
                 })
                 .collect();

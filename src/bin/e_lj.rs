@@ -30,6 +30,7 @@ fn main() {
     };
     use std::time::Instant;
     let before = Instant::now();
+    let e_lj = Box::new(Elj {});
     match pso_rs::run(config, e_lj, None, None, None) {
         Ok(pso) => {
             println!("Elapsed time: {:.2?}", before.elapsed());
@@ -74,20 +75,23 @@ fn v_ij(x_i: Particle, x_j: Particle, particle_dim: usize) -> f64 {
 }
 
 /// Get potential energy of a cluster of particles
-fn e_lj(particle: &Particle, _flat_dim: usize, particle_dims: &[usize]) -> f64 {
-    let mut sum = 0.0;
-    for i in 0..particle_dims[0] - 1 {
-        for j in (i + 1)..particle_dims[0] {
-            let true_i = i * particle_dims[1];
-            let true_j = j * particle_dims[1];
-            sum += v_ij(
-                particle[true_i..true_i + particle_dims[1]].to_vec(),
-                particle[true_j..true_j + particle_dims[1]].to_vec(),
-                particle_dims[1],
-            );
+struct Elj;
+impl ObjectiveFunction for Elj {
+    fn evaluate(&self, particle: &Particle, _flat_dim: usize, particle_dims: &[usize]) -> f64 {
+        let mut sum = 0.0;
+        for i in 0..particle_dims[0] - 1 {
+            for j in (i + 1)..particle_dims[0] {
+                let true_i = i * particle_dims[1];
+                let true_j = j * particle_dims[1];
+                sum += v_ij(
+                    particle[true_i..true_i + particle_dims[1]].to_vec(),
+                    particle[true_j..true_j + particle_dims[1]].to_vec(),
+                    particle_dims[1],
+                );
+            }
         }
+        4.0 * sum
     }
-    4.0 * sum
 }
 
 fn reshape(particle: &Particle, particle_dims: &[usize]) -> Vec<Vec<NumericKind>> {

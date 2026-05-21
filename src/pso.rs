@@ -178,7 +178,7 @@ impl PSO {
     }
 
     /// Updates the best found positions
-    fn update_best_positions(&mut self, new_best_f_values: &Vec<f64>) {
+    fn update_best_positions(&mut self, new_best_f_values: &[f64]) {
         for (i, old) in self.best_f_values.iter_mut().enumerate() {
             let new = new_best_f_values[i];
             if new < *old {
@@ -224,12 +224,7 @@ impl PSO {
             }
             NeighborhoodType::Gbest => {
                 neighborhoods = (0..model.config.population_size)
-                    .into_iter()
-                    .map(|_| {
-                        (0..model.config.population_size)
-                            .into_iter()
-                            .collect::<Vec<usize>>()
-                    })
+                    .map(|_| (0..model.config.population_size).collect::<Vec<usize>>())
                     .collect::<Vec<Vec<usize>>>();
             }
         }

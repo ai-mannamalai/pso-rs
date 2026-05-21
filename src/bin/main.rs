@@ -13,7 +13,7 @@ fn main() {
     };
     use std::time::Instant;
     let before = Instant::now();
-
+    let sum_squares = Box::new(SumOfSquares {});
     let pso: pso::PSO = pso_rs::run(
         config,
         sum_squares,
@@ -34,8 +34,11 @@ fn main() {
     println!("Found minimizer: {:#?} ", model.get_x_best());
 }
 
-fn sum_squares(p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
-    (0..dimensions[0])
-        .map(|i| i as f64 * p[i].value_f64().powf(2.0))
-        .sum()
+struct SumOfSquares;
+impl ObjectiveFunction for SumOfSquares {
+    fn evaluate(&self, particle: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
+        (0..dimensions[0])
+            .map(|i| i as f64 * particle[i].value_f64().powf(2.0))
+            .sum()
+    }
 }
