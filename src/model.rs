@@ -200,7 +200,12 @@ impl Model {
     /// Uses the rayon crate for parallel computation
     pub fn get_f_values(&mut self) -> Vec<f64> {
         if self.config.debug {
-            println!("BEGIN: get_f_values")
+            println!(
+                "BEGIN: get_f_values parallelize:{}, population size:{}, len : {}",
+                self.config.parallelize,
+                self.config.population_size,
+                self.population.len()
+            )
         }
 
         // find the objective function value for each member of the population
@@ -209,17 +214,28 @@ impl Model {
             self.population_f_scores = iter
                 .map(|particle| {
                     (*self.obj_f).evaluate(particle, self.flat_dim, &self.config.dimensions)
-                    // self.population_f_scores[i] = f_score;
                 })
                 .collect();
         } else {
             let iter = self.population.iter();
             self.population_f_scores = iter
-                .map(|particle| {
-                    (*self.obj_f).evaluate(particle, self.flat_dim, &self.config.dimensions)
-                    // self.population_f_scores[i] = f_score;
+                .enumerate()
+                .map(|(idx, particle)| {
+                    if self.config.debug {
+                        println!("Evaluating case {}", idx);
+                    }
+                    let result =
+                        (*self.obj_f).evaluate(particle, self.flat_dim, &self.config.dimensions);
+                    if self.config.debug {
+                        println!("Completed case {}", idx);
+                    }
+                    result
                 })
                 .collect();
+        }
+
+        if self.config.debug {
+            println!("    Completed evaluation; sorting for best scores");
         }
         // update best
         let mut f_best = self.f_best;
@@ -234,10 +250,11 @@ impl Model {
         self.x_best = x_best;
 
         if self.config.debug {
-            println!("END: get_f_values")
+            println!("    Completed sorting scores");
+            println!("END: get_f_values");
         }
 
-        self.population_f_scores.to_owned()
+        self.population_f_scores.clone()
     }
 
     /// Returns the best found objective function value
@@ -297,6 +314,30 @@ impl Default for Config {
     }
 }
 
+impl fmt::Display for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Config {{ dimensions: {:?}, flat_dim_heuristic: {}, population_size: {}, neighborhood: {}, rho: {}, alpha: {:.4}, lr: {:.4}, c1: {:.4}, c2: {:.4}, bounds: {:?}, t_max: {}, progress_bar: {}, parallelize: {}, debug: {} }}",
+            self.dimensions,
+            // flat_dim isn't stored here; show product-of-dimensions heuristic
+            self.dimensions.iter().product::<usize>(),
+            self.population_size,
+            self.neighborhood_type,
+            self.rho,
+            self.alpha,
+            self.lr,
+            self.c1,
+            self.c2,
+            self.bounds,
+            self.t_max,
+            self.progress_bar,
+            self.parallelize,
+            self.debug
+        )
+    }
+}
+
 #[derive(Debug)]
 pub enum NeighborhoodType {
     Lbest,
@@ -309,5 +350,26 @@ impl fmt::Display for NeighborhoodType {
             NeighborhoodType::Lbest => write!(f, "Local neighborhood (lbest)"),
             NeighborhoodType::Gbest => write!(f, "Global neighborhood (gbest)"),
         }
+    }
+}
+
+impl fmt::Display for Model {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Model {{ dimensions: {:?}, flat_dim: {}, population_size: {}, neighborhood: {}, rho: {}, lr: {:.4}, c1: {:.4}, c2: {:.4}, f_best: {:.6}, seed: {:?}, parallelize: {}, debug: {} }}",
+            self.config.dimensions,
+            self.flat_dim,
+            self.config.population_size,
+            self.config.neighborhood_type,
+            self.config.rho,
+            self.config.lr,
+            self.config.c1,
+            self.config.c2,
+            self.f_best,
+            self.seed,
+            self.config.parallelize,
+            self.config.debug
+        )
     }
 }

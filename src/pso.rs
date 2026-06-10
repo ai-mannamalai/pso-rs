@@ -5,6 +5,7 @@ use rand::{thread_rng, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use std::error::Error;
+use std::fmt;
 use std::fs::File;
 use std::io::Write;
 
@@ -25,6 +26,8 @@ pub struct PSO {
     pub seeded_rng: ChaCha8Rng,
     pub rng: ThreadRng,
 }
+
+//impl Display for PSO
 
 impl PSO {
     /// Initialize Particle Swarm Optimization
@@ -271,5 +274,24 @@ impl PSO {
         writeln!(file, "{}", best_x_str.join("\n"))?;
 
         Ok(())
+    }
+}
+
+impl fmt::Display for PSO {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "PSO {{ chi: {:.6}, v_max: {:.6}, population_size: {}, t_max: {}, lr: {:.4}, c1: {:.4}, c2: {:.4}, f_best: {:.6}, neighborhood: {}, seed: {:?} }}",
+            self.chi,
+            self.v_max,
+            self.model.config.population_size,
+            self.model.config.t_max,
+            self.model.config.lr,
+            self.model.config.c1,
+            self.model.config.c2,
+            self.model.f_best,
+            self.model.config.neighborhood_type,
+            self.seed
+        )
     }
 }
