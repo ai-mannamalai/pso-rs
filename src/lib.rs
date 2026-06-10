@@ -199,7 +199,6 @@ pub use model::*;
 
 use pso::PSO;
 use std::error::Error;
-
 /// Creates a model and runs the PSO method
 ///
 /// # Panics
@@ -212,13 +211,25 @@ pub fn run(
     terminate_f: Option<fn(f64) -> bool>,
     seed: Option<u64>,
 ) -> Result<PSO, Box<dyn Error>> {
+    let config_debug = config.debug;
+    if config_debug {
+        println!("BEGIN: run")
+    }
+
     assert_config(&config)?;
     let mut pso = init(config, obj_f, cast_f, seed)?;
     let term_condition = match terminate_f {
         Some(terminate_f) => terminate_f,
         None => |_| false,
     };
+    if config_debug {
+        println!("END INIT");
+        println!("BEGIN RUN");
+    }
     pso.run(term_condition);
+    if config_debug {
+        println!("END RUN");
+    }
     Ok(pso)
 }
 
@@ -231,9 +242,16 @@ pub fn init(
     cast_f: Option<CastFunctionT>,
     seed: Option<u64>,
 ) -> Result<PSO, &'static str> {
+    let config_debug = config.debug;
+    if config_debug {
+        println!("BEGIN: pso::init");
+    }
     assert_config(&config)?;
     let model = Model::new(config, obj_f, cast_f, seed);
     let pso = PSO::new(model, seed);
+    if config_debug {
+        println!("END: pso::init");
+    }
     Ok(pso)
 }
 
@@ -248,13 +266,4 @@ fn assert_config(config: &Config) -> Result<(), &'static str> {
         return Err("bounds vector must have the same length as the last dimension of the model");
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }

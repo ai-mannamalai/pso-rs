@@ -131,6 +131,10 @@ impl Model {
         cast_f: Option<CastFunctionT>,
         seed: Option<u64>,
     ) -> Model {
+        let config_debug = config.debug;
+        if config_debug {
+            println!("BEGIN: PSO_Model New")
+        }
         // init population
         let mut rng = thread_rng();
         let mut seeded_rng = ChaCha8Rng::seed_from_u64(0);
@@ -183,6 +187,9 @@ impl Model {
             cast_f,
         };
         model.get_f_values();
+        if config_debug {
+            println!("END: PSO_Model New")
+        }
         model
     }
 
@@ -192,6 +199,10 @@ impl Model {
     ///
     /// Uses the rayon crate for parallel computation
     pub fn get_f_values(&mut self) -> Vec<f64> {
+        if self.config.debug {
+            println!("BEGIN: get_f_values")
+        }
+
         // find the objective function value for each member of the population
         if self.config.parallelize {
             let iter = self.population.par_iter();
@@ -221,6 +232,11 @@ impl Model {
         }
         self.f_best = f_best;
         self.x_best = x_best;
+
+        if self.config.debug {
+            println!("END: get_f_values")
+        }
+
         self.population_f_scores.to_owned()
     }
 
@@ -252,6 +268,7 @@ pub struct Config {
     pub t_max: usize,
     pub progress_bar: bool,
     pub parallelize: bool,
+    pub debug: bool,
 }
 
 impl Config {
@@ -275,6 +292,7 @@ impl Default for Config {
             t_max: 1000,
             progress_bar: true,
             parallelize: true,
+            debug: false,
         }
     }
 }
