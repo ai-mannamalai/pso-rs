@@ -213,7 +213,7 @@ pub fn run(
 ) -> Result<PSO, Box<dyn Error>> {
     let config_debug = config.debug;
     if config_debug {
-        println!("BEGIN: run")
+        log::info!("BEGIN: run")
     }
 
     assert_config(&config)?;
@@ -223,12 +223,20 @@ pub fn run(
         None => |_| false,
     };
     if config_debug {
-        println!("END INIT");
-        println!("BEGIN RUN");
+        log::info!("END INIT");
+        log::info!("BEGIN RUN");
     }
     pso.run(term_condition);
     if config_debug {
-        println!("END RUN");
+        log::info!("END RUN");
+        log::info!("BEGIN SUMMARY");
+        log::info!("POPULATION");
+        for (idx, element) in pso.model.population.iter().enumerate() {
+            log::info!("{} => {:?}", idx + 1, element);
+        }
+        log::info!("BEST FITNESS: {:?}", pso.model.get_f_values().last());
+        log::info!("BEST SOLUTION: {:?}", pso.model.get_x_best());
+        log::info!("END SUMMARY");
     }
     Ok(pso)
 }
@@ -244,13 +252,13 @@ pub fn init(
 ) -> Result<PSO, &'static str> {
     let config_debug = config.debug;
     if config_debug {
-        println!("BEGIN: pso::init");
+        log::info!("BEGIN: pso::init");
     }
     assert_config(&config)?;
     let model = Model::new(config, obj_f, cast_f, seed);
     let pso = PSO::new(model, seed);
     if config_debug {
-        println!("END: pso::init");
+        log::info!("END: pso::init");
     }
     Ok(pso)
 }

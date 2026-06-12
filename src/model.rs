@@ -133,7 +133,7 @@ impl Model {
     ) -> Model {
         let config_debug = config.debug;
         if config_debug {
-            println!("BEGIN: PSO_Model New")
+            log::info!("BEGIN: PSO_Model New")
         }
         // init population
         let mut rng = thread_rng();
@@ -141,10 +141,8 @@ impl Model {
         if let Some(seedval) = seed {
             seeded_rng = ChaCha8Rng::seed_from_u64(seedval);
         }
-        let mut flat_dim = 1;
-        for d in config.dimensions.clone() {
-            flat_dim *= d;
-        }
+        let dimensions = &config.dimensions;
+        let flat_dim: usize = dimensions.into_iter().fold(1, |acc, d| acc * d);
         let mut population: Population = vec![];
 
         for _ in 0..config.population_size {
@@ -173,6 +171,11 @@ impl Model {
             });
         }
         let population_f_scores = vec![f64::INFINITY; config.population_size];
+        if seed.is_some() {
+            population.swap(seeded_rng.gen_range(0..config.population_size), 0);
+        } else {
+            population.swap(rng.gen_range(0..config.population_size), 0);
+        };
         let x_best = population[0].clone();
         let f_best = population_f_scores[0];
         let mut model = Model {
@@ -188,7 +191,7 @@ impl Model {
         };
         model.get_f_values();
         if config_debug {
-            println!("END: PSO_Model New")
+            log::info!("END: PSO_Model New")
         }
         model
     }
@@ -200,7 +203,7 @@ impl Model {
     /// Uses the rayon crate for parallel computation
     pub fn get_f_values(&mut self) -> Vec<f64> {
         if self.config.debug {
-            println!(
+            log::info!(
                 "BEGIN: get_f_values parallelize:{}, population size:{}, len : {}",
                 self.config.parallelize,
                 self.config.population_size,
@@ -222,12 +225,12 @@ impl Model {
                 .enumerate()
                 .map(|(idx, particle)| {
                     if self.config.debug {
-                        println!("Evaluating case {}", idx);
+                        log::info!("Evaluating case {} with parameter {:?}", idx, particle);
                     }
                     let result =
                         (*self.obj_f).evaluate(particle, self.flat_dim, &self.config.dimensions);
                     if self.config.debug {
-                        println!("Completed case {}", idx);
+                        log::info!("Completed case {} with fitness {}", idx, result);
                     }
                     result
                 })
@@ -235,7 +238,7 @@ impl Model {
         }
 
         if self.config.debug {
-            println!("    Completed evaluation; sorting for best scores");
+            log::info!("    Completed evaluation; sorting for best scores");
         }
         // update best
         let mut f_best = self.f_best;
@@ -250,8 +253,10 @@ impl Model {
         self.x_best = x_best;
 
         if self.config.debug {
-            println!("    Completed sorting scores");
-            println!("END: get_f_values");
+            log::info!("    Completed sorting scores");
+            log::info!("    BEST X: {:?}", self.x_best);
+            log::info!("    BEST FITNESS: {:?}", self.f_best);
+            log::info!("END: get_f_values");
         }
 
         self.population_f_scores.clone()
@@ -309,7 +314,7 @@ impl Default for Config {
             t_max: 1000,
             progress_bar: true,
             parallelize: true,
-            debug: false,
+            debug: log::log_enabled!(log::Level::Debug) || log::log_enabled!(log::Level::Info),
         }
     }
 }

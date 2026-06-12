@@ -161,46 +161,60 @@ fn it_computes_correct_minimum_e_lj() {
     assert!(model.get_f_best() < -5.9999999);
 }
 
+// solve: arg-min f(x,y,z) = x and { (y-3)*(z-4) } or 1e3
 struct BSat;
 impl ObjectiveFunction for BSat {
     fn evaluate(&self, p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
         assert_eq!(dimensions[0], 3);
         if !p[0].value_bool() {
-            f64::MAX
+            1000.0f64
         } else {
-            //(x-3)*(y-4)
             ((p[1].value_f64() - 3.0) * (p[2].value_f64() - 4.0)).abs()
         }
     }
 }
 
+fn for_cast_fn(vraw: &Vec<f64>) -> Vec<NumericKind> {
+    return vec![
+        NumericKind::ValueBool(vraw[0] > 0.0),
+        NumericKind::ValueF64(vraw[1]),
+        NumericKind::ValueF64(vraw[2]),
+    ];
+}
+
 #[test]
 fn it_computes_boolean_sat_and_roots() {
+    let _ = env_logger::builder().is_test(true).try_init();
+
     let config = Config {
         dimensions: vec![3],
-        t_max: 1,
+        t_max: 100000,
         bounds: vec![(0.0, 1.0), (-5.0, 5.0), (-5.0, 5.0)],
-        population_size: 3,
-        progress_bar: true,
+        population_size: 100,
+        progress_bar: false,
+        parallelize: true,
+        debug: true,
         ..Config::default()
     };
     let bsat = Box::new(BSat);
-    let pso = pso_rs::run(config, bsat, None, None, None).unwrap();
+    let pso = pso_rs::run(
+        config,
+        bsat,
+        Some(for_cast_fn),
+        Some(|f| f.abs() < 0.0001),
+        Some(12345u64),
+    )
+    .unwrap();
+    let model = pso.model;
+    let result = (
+        model.get_x_best()[0].value_bool(),
+        model.get_x_best()[1].value_f64(),
+        model.get_x_best()[2].value_f64(),
+    );
 
-    let mut model = pso.model;
-
-    model.population[0][0] = false.into();
-    model.population[0][1] = (-2.0).into();
-    model.population[0][2] = (-2.0).into();
-
-    model.population[1][0] = false.into();
-    model.population[1][1] = (-2.0).into();
-    model.population[1][2] = (2.0).into();
-
-    model.population[2][0] = true.into();
-    model.population[2][1] = (2.0).into();
-    model.population[2][2] = (-2.0).into();
-    model.get_f_values();
-
-    assert_ne!(model.get_f_best(), 0.0);
+    log::info!("Best Result: {:?}", result);
+    assert!(model.f_best.abs() < 0.01);
+    assert_eq!(result.0, true);
+    assert!((result.1 - 3.0).abs() < 1.0);
+    assert!((result.2 - 4.0).abs() < 1.0);
 }

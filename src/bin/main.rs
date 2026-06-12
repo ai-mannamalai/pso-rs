@@ -3,6 +3,9 @@ use pso_rs::*;
 const N_DIMENSIONS: usize = 3;
 
 fn main() {
+    // Initialize logger for `log::info!` output
+    env_logger::init();
+
     let config = Config {
         dimensions: vec![N_DIMENSIONS],
         population_size: 100,
@@ -30,10 +33,10 @@ fn main() {
         Some(123456u64),
     )
     .unwrap();
-    println!("Elapsed time: {:.2?}", before.elapsed());
+    log::info!("Elapsed time: {:.2?}", before.elapsed());
     let model = pso.model;
-    println!("Found minimum: {:#?} ", model.get_f_best());
-    println!("Found minimizer: {:#?} ", model.get_x_best());
+    log::info!("Found minimum: {:#?} ", model.get_f_best());
+    log::info!("Found minimizer: {:#?} ", model.get_x_best());
 }
 
 struct SumOfSquares;
