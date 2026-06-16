@@ -1,8 +1,21 @@
+use log::{debug, info};
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::fmt;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Index, Mul, Sub};
+use std::sync::{Arc, RwLock};
+
+pub trait KeyValueTrait {
+    // 1. Associated Type
+    type Key: std::hash::Hash + Eq + Clone + std::fmt::Display;
+    type Value: PartialOrd + Clone + Copy + std::fmt::Display;
+
+    // 2. Identification Method
+    fn key(&self) -> Self::Key;
+    fn value(&self) -> Self::Value;
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum NumericKind {
@@ -102,10 +115,122 @@ impl NumericKind {
     }
 }
 
-pub type CastFunctionT = fn(p: &Vec<f64>) -> Vec<NumericKind>;
+pub type CastFunctionT = fn(p: &Vec<f64>) -> Particle;
 
 pub trait ObjectiveFunction: Send + Sync {
     fn evaluate(&self, p: &Particle, flat_dim: usize, dimensions: &[usize]) -> f64;
+}
+
+//TODO: Implement LRU, LFU, etc. Cache types.
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum CacheKind {
+    FirstIterator,
+    Bucket,
+}
+
+#[derive(Clone, Debug)]
+pub struct ConcurrentGenericCache<T: KeyValueTrait + std::fmt::Display> {
+    inner: Arc<RwLock<HashMap<T::Key, T::Value>>>,
+    size: usize,
+    cache_kind: Option<CacheKind>,
+}
+
+// Type alias for convenience: Always uses String as the key
+pub type StringKeyValueTraitCache<T> = ConcurrentGenericCache<T>;
+
+impl<T: KeyValueTrait + std::fmt::Display> ConcurrentGenericCache<T> {
+    pub fn new(cache_size: usize, cache_kind: Option<CacheKind>) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(HashMap::new())),
+            size: cache_size,
+            cache_kind,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn len(&self) -> usize {
+        log::debug!("Len[Self] = {}", self.inner.read().unwrap().len());
+        self.inner.read().unwrap().len()
+    }
+
+    pub fn insert(&mut self, item: T) -> Option<T::Value> {
+        let curr_size = self.len();
+        if curr_size >= self.size {
+            match self.cache_kind {
+                Some(CacheKind::FirstIterator) => {
+                    let key = {
+                        let mut handle = self.inner.write();
+                        let binding = handle.as_mut();
+                        let writeable = binding.unwrap();
+                        #[allow(clippy::map_clone)]
+                        let elements = writeable.keys().map(|k| k.clone()).collect::<Vec<_>>();
+                        (*elements.index(0)).clone()
+                    };
+
+                    let mut handle = self.inner.write();
+                    let binding = handle.as_mut();
+                    let writeable = binding.unwrap();
+                    writeable.remove(&key);
+                }
+                Some(CacheKind::Bucket) | None => {
+                    let mut handle = self.inner.write();
+                    let binding = handle.as_mut();
+                    let writeable = binding.unwrap();
+                    writeable.clear();
+                }
+            };
+        }
+
+        self.inner.write().ok()?.insert(item.key(), item.value());
+        Some(item.value())
+    }
+
+    pub fn get(&self, key: &T::Key) -> Option<T::Value>
+    where
+        T: Clone,
+    {
+        debug!("Get for ");
+        self.inner.read().ok()?.get(key).cloned()
+    }
+
+    pub fn remove(&self, key: &T::Key) -> Option<T::Value> {
+        self.inner.write().ok()?.remove(key)
+    }
+}
+
+#[derive(Clone)]
+pub struct ArgForObjectiveFunction(Particle, f64);
+impl ArgForObjectiveFunction {
+    fn new(particle: &Particle) -> Self {
+        ArgForObjectiveFunction(particle.clone(), f64::MAX)
+    }
+}
+impl fmt::Display for ArgForObjectiveFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Format vector elements using their Display impl and include the score
+        let elems = self
+            .0
+            .iter()
+            .map(|n| format!("{}", n))
+            .collect::<Vec<_>>()
+            .join(", ");
+        write!(f, "ArgForObjectiveFunction([{}], {})", elems, self.1)
+    }
+}
+impl KeyValueTrait for ArgForObjectiveFunction {
+    type Key = String;
+    type Value = f64;
+    fn value(&self) -> f64 {
+        self.1
+    }
+    fn key(&self) -> Self::Key {
+        // Create a unique key representation of the tuple data
+        // Example: converting the vector and float into a single string
+        format!("{:?}", self.0)
+    }
 }
 
 /// Model struct
@@ -133,7 +258,7 @@ impl Model {
     ) -> Model {
         let config_debug = config.debug;
         if config_debug {
-            log::info!("BEGIN: PSO_Model New")
+            info!("BEGIN: PSO_Model New")
         }
         // init population
         let mut rng = thread_rng();
@@ -142,7 +267,7 @@ impl Model {
             seeded_rng = ChaCha8Rng::seed_from_u64(seedval);
         }
         let dimensions = &config.dimensions;
-        let flat_dim: usize = dimensions.into_iter().fold(1, |acc, d| acc * d);
+        let flat_dim: usize = dimensions.iter().product();
         let mut population: Population = vec![];
 
         for _ in 0..config.population_size {
@@ -191,7 +316,7 @@ impl Model {
         };
         model.get_f_values();
         if config_debug {
-            log::info!("END: PSO_Model New")
+            info!("END: PSO_Model New")
         }
         model
     }
@@ -202,6 +327,12 @@ impl Model {
     ///
     /// Uses the rayon crate for parallel computation
     pub fn get_f_values(&mut self) -> Vec<f64> {
+        type StringCacheObj = StringKeyValueTraitCache<ArgForObjectiveFunction>;
+        let mut cache = StringCacheObj::new(
+            self.config.cache.unwrap_or_default(),
+            Some(CacheKind::FirstIterator),
+        );
+
         if self.config.debug {
             log::info!(
                 "BEGIN: get_f_values parallelize:{}, population size:{}, len : {}",
@@ -227,12 +358,25 @@ impl Model {
                     if self.config.debug {
                         log::info!("Evaluating case {} with parameter {:?}", idx, particle);
                     }
-                    let result =
-                        (*self.obj_f).evaluate(particle, self.flat_dim, &self.config.dimensions);
-                    if self.config.debug {
-                        log::info!("Completed case {} with fitness {}", idx, result);
+
+                    let arg: &ArgForObjectiveFunction = &ArgForObjectiveFunction::new(particle);
+                    if let Some(result) = cache.get(&arg.key().to_string()) {
+                        log::debug!("Cache Hit!");
+                        result
+                    } else {
+                        let result = (*self.obj_f).evaluate(
+                            particle,
+                            self.flat_dim,
+                            &self.config.dimensions,
+                        );
+                        if self.config.debug {
+                            log::info!("Completed case {} with fitness {}", idx, result);
+                        }
+                        let arg: ArgForObjectiveFunction =
+                            ArgForObjectiveFunction(particle.clone(), result);
+                        cache.insert(arg);
+                        result
                     }
-                    result
                 })
                 .collect();
         }
@@ -290,6 +434,7 @@ pub struct Config {
     pub t_max: usize,
     pub progress_bar: bool,
     pub parallelize: bool,
+    pub cache: Option<usize>,
     pub debug: bool,
 }
 
@@ -314,6 +459,7 @@ impl Default for Config {
             t_max: 1000,
             progress_bar: true,
             parallelize: true,
+            cache: Some(1000_0000_usize),
             debug: log::log_enabled!(log::Level::Debug) || log::log_enabled!(log::Level::Info),
         }
     }
@@ -376,5 +522,39 @@ impl fmt::Display for Model {
             self.config.parallelize,
             self.config.debug
         )
+    }
+}
+#[cfg(test)]
+mod test {
+    use crate::NumericKind;
+    use crate::*;
+
+    #[test]
+    fn basic_cache_testing() {
+        type StringCacheObj = StringKeyValueTraitCache<ArgForObjectiveFunction>;
+        for cache_kind in vec![
+            Some(CacheKind::FirstIterator),
+            Some(CacheKind::Bucket),
+            None,
+        ] {
+            let mut cache: ConcurrentGenericCache<ArgForObjectiveFunction> =
+                StringCacheObj::new(2, cache_kind);
+            let raw_key = vec![NumericKind::ValueF64(40.0)];
+            let item = ArgForObjectiveFunction::new(&raw_key);
+            assert_eq!(cache.inner.read().unwrap().get(&item.key()), None);
+            assert_eq!(cache.inner.read().unwrap().is_empty(), true);
+            for value in 0..10 {
+                let raw_key = vec![NumericKind::ValueF64(40.0 * value as f64)];
+                let item = ArgForObjectiveFunction {
+                    0: raw_key,
+                    1: (314159.0 * (value as f64)),
+                };
+                println!("Calling insert with {}", item);
+                cache.insert(item.clone());
+                assert_eq!(cache.get(&item.key()), Some(&item.value()).copied());
+                assert!(cache.len() <= 10);
+            }
+            assert_eq!(cache.len(), 2);
+        }
     }
 }

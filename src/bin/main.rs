@@ -12,7 +12,7 @@ fn main() {
         bounds: vec![(-10.0, 10.0); N_DIMENSIONS],
         t_max: 1e7 as usize,
         parallelize: true,
-        progress_bar: false,
+        progress_bar: true,
         debug: true,
         ..Config::default()
     };

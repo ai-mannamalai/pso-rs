@@ -67,6 +67,32 @@ fn it_computes_correct_minimum_rosenbrock_2d() {
 }
 
 #[test]
+fn it_computes_correct_minimum_cached_rosenbrock_2d() {
+    let config = Config {
+        t_max: 1,
+        population_size: 1,
+        progress_bar: false,
+        cache: Some(1000_000_usize),
+        ..Config::default()
+    };
+    let pso = pso_rs::run(config, Box::new(Rosenbrock {}), None, None, None).unwrap();
+
+    let mut model = pso.model;
+
+    model.population[0][0] = (2.0).into();
+    model.population[0][1] = (-2.0).into();
+    model.get_f_values();
+
+    assert_ne!(model.get_f_best(), 0.0);
+
+    model.population[0][0] = (1.0).into();
+    model.population[0][1] = (1.0).into();
+    model.get_f_values();
+
+    assert_eq!(model.get_f_best(), 0.0);
+}
+
+#[test]
 fn it_computes_correct_minimum_rosenbrock_3d() {
     let config = Config {
         dimensions: vec![3],
