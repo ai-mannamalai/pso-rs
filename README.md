@@ -206,3 +206,5 @@ cargo run --bin=e_lj
 cargo run --release --bin=e_lj
 ```
 
+## Tutorial (Scientific Computing in Rust 2026)
+A short tutorial <https://scientificcomputing.rs/2026/talks/annamalai.html> using the Rust library at the Scientific Computing in Rust 2026 shows you around the library. The video of the talk can be found here: <https://www.youtube.com/watch?v=AmCTTr4Cdys>
