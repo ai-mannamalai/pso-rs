@@ -3,9 +3,6 @@ use pso_rs::*;
 const N_DIMENSIONS: usize = 3;
 
 fn main() {
-    // Initialize logger for `log::info!` output
-    env_logger::init();
-
     let config = Config {
         dimensions: vec![N_DIMENSIONS],
         population_size: 100,
@@ -16,34 +13,15 @@ fn main() {
         debug: true,
         ..Config::default()
     };
-    use std::time::Instant;
-    let before = Instant::now();
-    let sum_squares = Box::new(SumOfSquares {});
-    let pso: pso::PSO = pso_rs::run(
-        config,
-        sum_squares,
-        Some(|f| {
-            let mut r: Vec<NumericKind> = vec![];
-            for ff in f {
-                r.push(NumericKind::ValueF64(*ff));
-            }
-            r
-        }),
-        Some(|f_best| f_best < 1e-4),
-        Some(123456u64),
-    )
-    .unwrap();
-    log::info!("Elapsed time: {:.2?}", before.elapsed());
-    let model = pso.model;
-    log::info!("Found minimum: {:#?} ", model.get_f_best());
-    log::info!("Found minimizer: {:#?} ", model.get_x_best());
+    let before = std::time::Instant::now();
+    let pso = pso_rs::run(config, sum_of_squares, |f_best| f_best < 1e-4, Some(123456)).unwrap();
+    println!("Elapsed time: {:.2?}", before.elapsed());
+    println!("Found minimum: {:#?} ", pso.model.get_f_best());
+    println!("Found minimizer: {:#?} ", pso.model.get_x_best());
 }
 
-struct SumOfSquares;
-impl ObjectiveFunction for SumOfSquares {
-    fn evaluate(&self, particle: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
-        (0..dimensions[0])
-            .map(|i| i as f64 * particle[i].value_f64().powf(2.0))
-            .sum()
-    }
+fn sum_of_squares(particle: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
+    (0..dimensions[0])
+        .map(|i| i as f64 * particle[i].powi(2))
+        .sum()
 }

@@ -1,16 +1,7 @@
-//! An easy-to-use, simple Particle Swarm Optimization (PSO) implementation in Rust.
+//! An easy-to-use Particle Swarm Optimization (PSO) implementation.
 //!
-//! [![Crates.io](https://img.shields.io/crates/v/pso_rs?style=for-the-badge)](https://crates.io/crates/pso-rs)
-//! [![docs.rs](https://img.shields.io/docsrs/pso-rs?style=for-the-badge)](https://docs.rs/pso-rs/latest/pso_rs/)
-//! [![GitHub](https://img.shields.io/github/license/czonios/pso-rs?style=for-the-badge)](https://github.com/czonios/pso-rs/blob/master/LICENSE)
-//! [![Website](https://img.shields.io/website?style=for-the-badge&url=https%3A%2F%2Fczonios.github.io%2Fpso-rs%2F)](https://czonios.github.io/pso-rs/)
-//!
-//! It uses the [`rand`](https://crates.io/crates/rand) crate for random initialization, and the [`rayon`](https://crates.io/crates/rayon) crate for parallel objective function computation. It also has a nice progress bar curtesy of the [`indicatif`](https://crates.io/crates/indicatif) crate. Below is a screenshot of PSO running, attempting to minimize the Lennard-Jones potential energy in a cluster of 20 molecules:
-//!
-//! ![Screenshot](https://raw.githubusercontent.com/czonios/pso-rs/master/screenshots/pbar.gif)
-//!
-//! The [examples](#examples) below can get you started.
-//! In order to use it in your own optimization problem, you will need to define an objective function as it is defined in the [run](https://docs.rs/pso-rs/latest/pso_rs/fn.run.html) function, and a [`Config`](https://docs.rs/pso-rs/latest/pso_rs/model/struct.Config.html) object. See the [Notes](#notes) section for more tips.
+//! Uses Clerc–Kennedy constriction, optional lbest/gbest neighborhoods, and
+//! parallel objective evaluation via [`rayon`].
 //!
 //! # Examples
 //!
@@ -19,42 +10,26 @@
 //! ```rust
 //! use pso_rs::*;
 //!
-//! // define objective function (d-dimensional Rosenbrock)
-//! struct ObjectiveObj;
-//! impl ObjectiveFunction for ObjectiveObj {
-//!     fn evaluate(&self, p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
-//!         (0..dimensions[0] - 1).map(|i| {
-//!         100.0 * ((p[i+1]-p[i]).value_f64().powf(2.0)).powf(2.0)
-//!             + (1.0-p[i].value_f64()).powf(2.0)
-//!     }).sum()
-//!     }
-//! }
-//! // define a termination condition (optional)
-//! fn terminate(f_best: f64) -> bool {
-//!     f_best - (0.0) < 1e-4
+//! fn rosenbrock(p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
+//!     (0..dimensions[0] - 1)
+//!         .map(|i| {
+//!             let x = p[i];
+//!             let y = p[i + 1];
+//!             100.0 * (y - x * x).powi(2) + (1.0 - x).powi(2)
+//!         })
+//!         .sum()
 //! }
 //!
 //! let config = Config {
-//!     // dimension shape of each particle
 //!     dimensions: vec![2],
-//!     // problem bounds in each dimension
 //!     bounds: vec![(-5.0, 10.0); 2],
-//!     // maximum no. of objective function computations
-//!     t_max: 10000,
-//!     // leave the rest of the params as default
+//!     t_max: 10_000,
+//!     progress_bar: false,
 //!     ..Config::default()
 //! };
 //!
-//! let pso = pso_rs::run(
-//!     config,
-//!     Box::new(ObjectiveObj{}),
-//!     None,
-//!     Some(terminate),
-//!     None
-//! ).unwrap();
-//!     
-//! let model = pso.model;
-//! println!("Model: {:?} ", model.get_f_best());
+//! let pso = pso_rs::run(config, rosenbrock, |f_best| f_best < 1e-4, None).unwrap();
+//! println!("Found minimum: {:#?}", pso.model.get_f_best());
 //! ```
 //!
 //! ## Initialize PSO for later execution
@@ -62,86 +37,47 @@
 //! ```rust
 //! use pso_rs::*;
 //!
-//! // define objective function (d-dimensional Rosenbrock)
-//! struct ObjectiveObj;
-//! impl ObjectiveFunction for ObjectiveObj {
-//!     fn evaluate(&self, p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
-//!     (0..dimensions[0] - 1).map(|i| {
-//!         100.0 * ((p[i+1]-p[i]).value_f64().powf(2.0)).powf(2.0)
-//!             + (1.0-p[i].value_f64()).powf(2.0)
-//!     }).sum()
-//!  }
+//! fn rosenbrock(p: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
+//!     (0..dimensions[0] - 1)
+//!         .map(|i| {
+//!             let x = p[i];
+//!             let y = p[i + 1];
+//!             100.0 * (y - x * x).powi(2) + (1.0 - x).powi(2)
+//!         })
+//!         .sum()
 //! }
 //!
 //! let config = Config {
 //!     dimensions: vec![2],
 //!     bounds: vec![(-5.0, 10.0); 2],
-//!     t_max: 10000,
+//!     t_max: 10_000,
+//!     progress_bar: false,
 //!     ..Config::default()
 //! };
 //!
-//! let mut pso = pso_rs::init(
-//!     config,
-//!     Box::new(ObjectiveObj{}),
-//!     None,
-//!     None
-//! ).unwrap();
-//!
-//! // run PSO with no termination condition
-//! pso.run(|_| false);
-//!     
-//! let model = pso.model;
-//! println!("Found minimum: {:#?} ", model.get_f_best());
-//! println!("Minimizer: {:#?}", model.get_x_best());
+//! let mut pso = pso_rs::init(config, rosenbrock, None).unwrap();
+//! pso.run(|_| false).unwrap();
+//! println!("Found minimum: {:#?}", pso.model.get_f_best());
+//! println!("Minimizer: {:#?}", pso.model.get_x_best());
 //! ```
-//! struct XSumSquares;
-//! impl ObjectiveFunction for XSumSquares {
-//!    fn evaluate(&self, particle: &Particle, _flat_dim: usize, dimensions: &[usize]) -> f64 {
-//!         (0..dimensions[0]).map(|i| i as f64 * particle[i].powf(2.0)).sum()
-//!    };
-//! }
-//!
-//! //example shows how to use lambda functions to model objective
-//! fn main() {
-//!    let config = Config {
-//!        dimensions: vec![N_DIMENSIONS],
-//!        population_size: 100,
-//!        bounds: vec![(-10.0, 10.0); N_DIMENSIONS],
-//!        t_max: 1e7 as usize,
-//!        ..Config::default()
-//!    };
-//!    use std::time::Instant;
-//!    let before = Instant::now();
-//!     
-//!    let pso = pso_rs::run(config, Box::new(XSumSquares), None, Some(|f_best| f_best < 1e-4),Some(123456u64)).unwrap();
-//!    println!("Elapsed time: {:.2?}", before.elapsed());
-//!    let model = pso.model;
-//!    println!("Found minimum: {:#?} ", model.get_f_best());
-//!    println!("Found minimizer: {:#?} ", model.get_x_best());
-//! }
 //!
 //! # Notes
 //!
 //! ## Performance
 //!
-//! This implementation uses a flat vector (`Vec<f64>`) to represent any d-dimensional problem (see the [Optimization Problem Dimensionality](#optimization-problem-dimensionality) section). This means that the vector has an O(1) access time, and can be cached for fast access, similarly to a static array.
-//!
-//! The computation of the objective function for each particle is performed in parallel, as it is computationally expensive for any non-trivial problem. In the future, complete swarms will be able to be run in parallel and optionally communicate their best found positions by passing messages.
+//! Particles are stored as a flat `Vec<f64>`. Objective values are computed in
+//! parallel when [`Config::parallelize`] is `true` (the default).
 //!
 //! ## Optimization problem dimensionality
 //!
-//! Even though you can have particles of any shape and size, as long as each item is `f64`, `pso_rs` represents each particle as a flat vector: `Vec<f64>`.
-//!
-//! This means that, for example, in order to find clusters of 20 molecules in 3D space that minimize the [Lennard-Jones potential energy](https://en.wikipedia.org/wiki/Lennard-Jones_potential), you can define `dimensions` as (20, 3).
-//! If you want, you can also create a custom `reshape` function, like this one for molecule clusters below:
+//! Multi-dimensional shapes (for example a cluster of 20 molecules in 3D) are
+//! specified as `dimensions: vec![20, 3]` and flattened to length 60. Bounds
+//! apply to the last axis. You can reshape the best particle after a run:
 //!
 //! ```rust
 //! use pso_rs::*;
 //!
-//! fn reshape(
-//!     particle: &Particle,
-//!     particle_dims: &[usize]
-//! ) -> Vec<Vec<NumericKind>> {
+//! fn reshape(particle: &Particle, particle_dims: &[usize]) -> Vec<Vec<f64>> {
 //!     let mut reshaped_cluster = vec![];
 //!     let mut i = 0;
 //!     for _ in 0..particle_dims[0] {
@@ -155,123 +91,172 @@
 //!     reshaped_cluster
 //! }
 //!
-//! // used in the objective function
-//! struct ObjectiveObj;
-//! impl ObjectiveFunction for ObjectiveObj {
-//! fn evaluate(
-//!     &self,
-//!     particle: &Particle,
-//!     _flat_dim: usize,
-//!     dimensions: &[usize]
-//! ) -> f64 {
-//!     let _reshaped_particle = reshape(particle, dimensions);
-//!     /* Do stuff */
-//!     0.0
-//! }
-//! }
 //! let config = Config {
 //!     dimensions: vec![20, 3],
 //!     bounds: vec![(-2.5, 2.5); 3],
 //!     t_max: 1,
+//!     progress_bar: false,
 //!     ..Config::default()
 //! };
 //!
-//! let pso = pso_rs::run(
-//!     config,
-//!     Box::new(ObjectiveObj{}),
-//!     None,
-//!     None,
-//!     None
-//! ).unwrap();
-//!
-//! // somewhere in main(), after running PSO as in the example:
+//! fn dummy(_p: &Particle, _flat_dim: usize, _dimensions: &[usize]) -> f64 {
+//!     0.0
+//! }
+//! let pso = pso_rs::run(config, dummy, |_| false, None).unwrap();
 //! println!(
-//!     "Best found minimizer: {:#?} ",
-//!     reshape(&pso.model.get_x_best(),
-//!         &pso.model.config.dimensions)
+//!     "Best found minimizer: {:#?}",
+//!     reshape(pso.model.get_x_best(), &pso.model.config.dimensions)
 //! );
 //! ```
 
 pub mod model;
 pub mod pso;
 
-pub use model::*;
+pub use model::{Config, Model, NeighborhoodType, ObjectiveFunction, Particle, Population};
+pub use pso::PSO;
 
-use pso::PSO;
-use std::error::Error;
-/// Creates a model and runs the PSO method
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+use std::fmt;
+
+/// Error from configuration checks or a NaN update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PsoError {
+    InvalidConfig(&'static str),
+    NanCoefficient,
+}
+
+impl fmt::Display for PsoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PsoError::InvalidConfig(msg) => write!(f, "{}", msg),
+            PsoError::NanCoefficient => write!(f, "a particle coefficient became NaN"),
+        }
+    }
+}
+
+impl std::error::Error for PsoError {}
+
+/// Creates a model and runs PSO.
 ///
-/// # Panics
-///
-/// Panics if any particle coefficient becomes NaN (usually because of bad parameterization, e.g. c1 + c2 < 4)
-pub fn run(
+/// `terminate` is called after each generation with the best fitness so far.
+/// Pass `|_| false` to run until `t_max` evaluations. `t_max` counts objective
+/// calls performed in the update loop (the initial population is evaluated
+/// separately during [`init`]).
+pub fn run<F, Term>(
     config: Config,
-    obj_f: Box<dyn ObjectiveFunction>,
-    cast_f: Option<CastFunctionT>,
-    terminate_f: Option<fn(f64) -> bool>,
+    obj_f: F,
+    terminate: Term,
     seed: Option<u64>,
-) -> Result<PSO, Box<dyn Error>> {
+) -> Result<PSO<F>, PsoError>
+where
+    F: ObjectiveFunction,
+    Term: FnMut(f64) -> bool,
+{
     let config_debug = config.debug;
     if config_debug {
-        log::info!("BEGIN: run")
+        log::info!("BEGIN: run");
     }
 
-    assert_config(&config)?;
-    let mut pso = init(config, obj_f, cast_f, seed)?;
-    let term_condition = match terminate_f {
-        Some(terminate_f) => terminate_f,
-        None => |_| false,
-    };
+    let mut pso = init(config, obj_f, seed)?;
     if config_debug {
         log::info!("END INIT");
         log::info!("BEGIN RUN");
     }
-    pso.run(term_condition);
+    pso.run(terminate)?;
     if config_debug {
         log::info!("END RUN");
-        log::info!("BEGIN SUMMARY");
-        log::info!("POPULATION");
-        for (idx, element) in pso.model.population.iter().enumerate() {
-            log::info!("{} => {:?}", idx + 1, element);
-        }
-        log::info!("BEST FITNESS: {:?}", pso.model.get_f_values().last());
+        log::info!("BEST FITNESS: {:?}", pso.model.get_f_best());
         log::info!("BEST SOLUTION: {:?}", pso.model.get_x_best());
-        log::info!("END SUMMARY");
     }
     Ok(pso)
 }
 
-/// Initializes and returns a PSO instance without running the optimization process
-///
-/// Useful for initializing an instance for running at a later time
-pub fn init(
+/// Initializes a PSO instance without running the optimization loop.
+pub fn init<F: ObjectiveFunction>(
     config: Config,
-    obj_f: Box<dyn ObjectiveFunction>,
-    cast_f: Option<CastFunctionT>,
+    obj_f: F,
     seed: Option<u64>,
-) -> Result<PSO, &'static str> {
+) -> Result<PSO<F>, PsoError> {
     let config_debug = config.debug;
     if config_debug {
         log::info!("BEGIN: pso::init");
     }
     assert_config(&config)?;
-    let model = Model::new(config, obj_f, cast_f, seed);
-    let pso = PSO::new(model, seed);
+    let mut rng = match seed {
+        Some(s) => ChaCha8Rng::seed_from_u64(s),
+        None => ChaCha8Rng::from_entropy(),
+    };
+    let model = Model::new(config, obj_f, seed, &mut rng);
+    let pso = PSO::new(model, seed, rng);
     if config_debug {
         log::info!("END: pso::init");
     }
     Ok(pso)
 }
 
-fn assert_config(config: &Config) -> Result<(), &'static str> {
+fn assert_config(config: &Config) -> Result<(), PsoError> {
     if config.c1 + config.c2 < 4.0 {
-        return Err("c1 + c2 must be greater than 4");
+        return Err(PsoError::InvalidConfig("c1 + c2 must be at least 4"));
     }
     if config.dimensions.is_empty() {
-        return Err("dimensions must be set");
+        return Err(PsoError::InvalidConfig("dimensions must be set"));
     }
-    if config.bounds.len() != config.dimensions[config.dimensions.len() - 1] {
-        return Err("bounds vector must have the same length as the last dimension of the model");
+    if config.population_size == 0 {
+        return Err(PsoError::InvalidConfig(
+            "population_size must be at least 1",
+        ));
+    }
+    if config.bounds.is_empty() {
+        return Err(PsoError::InvalidConfig("bounds must be set"));
+    }
+    for &(lo, hi) in &config.bounds {
+        if lo >= hi {
+            return Err(PsoError::InvalidConfig(
+                "each bound must have a strictly lower start than end",
+            ));
+        }
+    }
+    let last_dim = config.dimensions[config.dimensions.len() - 1];
+    if config.bounds.len() != last_dim {
+        return Err(PsoError::InvalidConfig(
+            "bounds vector must have the same length as the last dimension of the model",
+        ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn constant_zero(_p: &Particle, _flat_dim: usize, _dimensions: &[usize]) -> f64 {
+        0.0
+    }
+
+    #[test]
+    fn rejects_bad_coefficients() {
+        let config = Config {
+            c1: 1.0,
+            c2: 1.0,
+            ..Config::default()
+        };
+        assert!(matches!(
+            init(config, constant_zero, None),
+            Err(PsoError::InvalidConfig(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_mismatched_bounds() {
+        let config = Config {
+            dimensions: vec![3],
+            bounds: vec![(-1.0, 1.0); 2],
+            ..Config::default()
+        };
+        assert!(matches!(
+            init(config, constant_zero, None),
+            Err(PsoError::InvalidConfig(_))
+        ));
+    }
 }

@@ -1,37 +1,28 @@
 use pso_rs::*;
 use std::process;
+
 const N_PARTICLES: usize = 20;
 
 fn main() {
     let dimensions = vec![N_PARTICLES, 3];
-    let population_size = 10;
-    let neighborhood_type = NeighborhoodType::Lbest;
-    let rho = 2;
-    let alpha = 0.08;
-    let lr = 1.0;
-    let c1 = 250.0;
-    let c2 = 0.8;
-    let bounds = vec![(-2.5, 2.5); 3];
-    let t_max = dimensions[0] * 1e5 as usize;
-
     let config = Config {
         dimensions,
-        population_size,
-        neighborhood_type,
-        rho,
-        alpha,
-        c1,
-        c2,
-        lr,
-        bounds,
-        t_max,
+        population_size: 10,
+        neighborhood_type: NeighborhoodType::Lbest,
+        rho: 2,
+        alpha: 0.08,
+        lr: 1.0,
+        c1: 250.0,
+        c2: 0.8,
+        bounds: vec![(-2.5, 2.5); 3],
+        t_max: N_PARTICLES * 1e5 as usize,
         parallelize: true,
+        progress_bar: true,
+        record_trajectory: true,
         ..Config::default()
     };
-    use std::time::Instant;
-    let before = Instant::now();
-    let e_lj = Box::new(Elj {});
-    match pso_rs::run(config, e_lj, None, None, None) {
+    let before = std::time::Instant::now();
+    match pso_rs::run(config, e_lj, |_| false, None) {
         Ok(pso) => {
             println!("Elapsed time: {:.2?}", before.elapsed());
             pso.write_f_to_file("./best_f_trajectory.txt")
@@ -48,7 +39,7 @@ fn main() {
             println!("Found minimum: {:#?} ", model.get_f_best());
             println!(
                 "Minimizer: {:#?} ",
-                reshape(&model.get_x_best(), &model.config.dimensions)
+                reshape(model.get_x_best(), &model.config.dimensions)
             );
         }
         Err(e) => {
@@ -58,44 +49,35 @@ fn main() {
     }
 }
 
-/// Get Euclidian distance of two particles
-fn l2(x_i: Particle, x_j: Particle, particle_dim: usize) -> f64 {
-    // calculated as the square root of the sum of the squared vector values
-    let mut sum: f64 = 0.0;
-    for i in 0..particle_dim {
-        sum += (x_i[i] - x_j[i]).value_f64().powf(2.0);
-    }
-    sum.sqrt()
+fn l2(x_i: &[f64], x_j: &[f64]) -> f64 {
+    x_i.iter()
+        .zip(x_j)
+        .map(|(a, b)| (a - b).powi(2))
+        .sum::<f64>()
+        .sqrt()
 }
 
-/// Get potential energy of two particles
-fn v_ij(x_i: Particle, x_j: Particle, particle_dim: usize) -> f64 {
-    let denom: f64 = 1.0 / l2(x_i, x_j, particle_dim);
-    denom.powf(12.0) - denom.powf(6.0)
+fn v_ij(x_i: &[f64], x_j: &[f64]) -> f64 {
+    let denom = 1.0 / l2(x_i, x_j);
+    denom.powi(12) - denom.powi(6)
 }
 
-/// Get potential energy of a cluster of particles
-struct Elj;
-impl ObjectiveFunction for Elj {
-    fn evaluate(&self, particle: &Particle, _flat_dim: usize, particle_dims: &[usize]) -> f64 {
-        let mut sum = 0.0;
-        for i in 0..particle_dims[0] - 1 {
-            for j in (i + 1)..particle_dims[0] {
-                let true_i = i * particle_dims[1];
-                let true_j = j * particle_dims[1];
-                sum += v_ij(
-                    particle[true_i..true_i + particle_dims[1]].to_vec(),
-                    particle[true_j..true_j + particle_dims[1]].to_vec(),
-                    particle_dims[1],
-                );
-            }
+fn e_lj(particle: &Particle, _flat_dim: usize, particle_dims: &[usize]) -> f64 {
+    let mut sum = 0.0;
+    for i in 0..particle_dims[0] - 1 {
+        for j in (i + 1)..particle_dims[0] {
+            let true_i = i * particle_dims[1];
+            let true_j = j * particle_dims[1];
+            sum += v_ij(
+                &particle[true_i..true_i + particle_dims[1]],
+                &particle[true_j..true_j + particle_dims[1]],
+            );
         }
-        4.0 * sum
     }
+    4.0 * sum
 }
 
-fn reshape(particle: &Particle, particle_dims: &[usize]) -> Vec<Vec<NumericKind>> {
-    // reshape particle
+fn reshape(particle: &Particle, particle_dims: &[usize]) -> Vec<Vec<f64>> {
     let mut reshaped_cluster = vec![];
     let mut i = 0;
     for _ in 0..particle_dims[0] {

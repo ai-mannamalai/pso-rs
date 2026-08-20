@@ -3,7 +3,7 @@ name = "pso-rs"
 version = "2.2.4"
 authors = ["Christos Zonios <czonios@gmail.com>"]
 description = "An easy-to-use, simple Particle Swarm Optimization implementation in Rust."
-edition = "2018"
+edition = "2021"
 license = "MIT"
 repository = "https://github.com/czonios/pso-rs"
 homepage = "https://czonios.github.io/pso-rs/"
@@ -13,18 +13,17 @@ exclude = [
     "screenshots"
 ]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+progress = ["dep:indicatif"]
 
 [dependencies]
 rand = "^0.8.4"
 rand_chacha = "^0.3"
-indicatif = "^0.18.4"
+indicatif = { version = "^0.18.4", optional = true }
 rayon = "^1.5.1"
 log = "0.4"
-env_logger = "0.9"
 
 [dev-dependencies]
+env_logger = "0.11"
 test-log = "0.2"
-
-# [profile.release]
-# debug = true

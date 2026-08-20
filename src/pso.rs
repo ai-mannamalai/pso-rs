@@ -1,70 +1,69 @@
 use crate::model::*;
-use indicatif::{ProgressBar, ProgressStyle};
-use rand::rngs::ThreadRng;
-use rand::{thread_rng, Rng, SeedableRng};
+use crate::PsoError;
+use rand::Rng;
 use rand_chacha::ChaCha8Rng;
-
-use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::io::Write;
 
-/// PSO struct
-///
-/// contains methods for performing Particle Swarm Optimization
-pub struct PSO {
+#[cfg(feature = "progress")]
+use indicatif::{ProgressBar, ProgressStyle};
+
+/// Neighborhood index lists. Gbest does not allocate an n×n table.
+#[derive(Clone, Debug)]
+pub(crate) enum Neighborhoods {
+    Gbest,
+    Lbest(Vec<Vec<usize>>),
+}
+
+/// Particle Swarm Optimization runner.
+pub struct PSO<F: ObjectiveFunction> {
     chi: f64,
-    v_max: f64,
-    pub model: Model,
-    neighborhoods: Vec<Vec<usize>>,
+    v_max: Vec<f64>,
+    pub model: Model<F>,
+    neighborhoods: Neighborhoods,
     velocities: Population,
     pub neigh_population: Population,
     pub best_f_values: Vec<f64>,
     pub best_f_trajectory: Vec<f64>,
     pub best_x_trajectory: Vec<Particle>,
     pub seed: Option<u64>,
-    pub seeded_rng: ChaCha8Rng,
-    pub rng: ThreadRng,
+    rng: ChaCha8Rng,
 }
 
-//impl Display for PSO
-
-impl PSO {
-    /// Initialize Particle Swarm Optimization
-    pub fn new(model: Model, seed: Option<u64>) -> PSO {
+impl<F: ObjectiveFunction> PSO<F> {
+    /// Initialize PSO from an already-evaluated model, continuing `rng`.
+    pub fn new(model: Model<F>, seed: Option<u64>, mut rng: ChaCha8Rng) -> PSO<F> {
         let phi = model.config.c1 + model.config.c2;
-        let phi_squared = phi.powf(2.0);
-        let tmp = phi_squared - (4.0 * phi);
-        let tmp = tmp.sqrt();
-        let chi = 2.0 / (2.0 - phi - tmp).abs();
-        let v_max = model.config.alpha * 5.0;
-        let neighborhoods = Self::create_neighborhoods(&model);
+        let chi = constriction_chi(phi);
+        let v_max: Vec<f64> = model
+            .config
+            .bounds
+            .iter()
+            .map(|(lo, hi)| model.config.alpha * (hi - lo))
+            .collect();
 
-        // initialize
-        let mut rng = thread_rng();
-        let mut seeded_rng = ChaCha8Rng::seed_from_u64(0);
-        if let Some(seedval) = seed {
-            seeded_rng = ChaCha8Rng::seed_from_u64(seedval);
-        }
-        let mut velocities = vec![];
+        let neighborhoods = create_neighborhoods(
+            model.config.population_size,
+            model.config.neighborhood_type,
+            model.config.rho,
+        );
+
+        let last_dim = *model.config.dimensions.last().unwrap_or(&1);
+        let mut velocities = Vec::with_capacity(model.config.population_size);
         for _ in 0..model.config.population_size {
-            let mut tmp = vec![];
-            for _ in 0..model.flat_dim {
-                if seed.is_some() {
-                    tmp.push(NumericKind::ValueF64(seeded_rng.gen_range(-v_max..v_max)));
-                } else {
-                    tmp.push(NumericKind::ValueF64(rng.gen_range(-v_max..v_max)));
-                }
+            let mut tmp = Vec::with_capacity(model.flat_dim);
+            for j in 0..model.flat_dim {
+                let vmax = v_max[j % last_dim];
+                tmp.push(rng.gen_range(-vmax..vmax));
             }
             velocities.push(tmp);
         }
 
         let best_f_values = model.population_f_scores.clone();
-        let neigh_population = (0..model.population_f_scores.len())
-            .map(|idx| model.population[idx].clone())
-            .collect();
+        let neigh_population = model.population.clone();
         let best_f_trajectory = vec![model.get_f_best()];
-        let best_x_trajectory = vec![model.get_x_best()];
+        let best_x_trajectory = vec![model.get_x_best().clone()];
 
         PSO {
             chi,
@@ -77,211 +76,221 @@ impl PSO {
             best_f_trajectory,
             best_x_trajectory,
             seed,
-            seeded_rng,
             rng,
         }
     }
 
-    /// Performs Particle Swarm Optimization
+    /// Run the swarm until `t_max` function evaluations or `terminate` is true.
     ///
-    /// # Panics
-    ///
-    /// Panics if any particle coefficient becomes NaN
-    pub fn run(&mut self, terminate: fn(f64) -> bool) -> usize {
-        let mut bar: Option<ProgressBar> = None;
-        if self.model.config.progress_bar {
-            bar = Some(ProgressBar::new(self.model.config.t_max as u64));
-            if let Some(ref bar) = bar {
-                if let Ok(value) = ProgressStyle::default_bar()
-                    .template("{msg} [{elapsed}] {bar:20.cyan/blue} {pos:>7}/{len:7} ETA: {eta}")
-                {
-                    bar.set_style(value);
-                }
+    /// Returns the number of objective evaluations performed during the loop
+    /// (initial evaluation is done in [`Model::new`]).
+    pub fn run<Term: FnMut(f64) -> bool>(
+        &mut self,
+        mut terminate: Term,
+    ) -> Result<usize, PsoError> {
+        #[cfg(feature = "progress")]
+        let bar = if self.model.config.progress_bar {
+            let bar = ProgressBar::new(self.model.config.t_max as u64);
+            if let Ok(style) = ProgressStyle::default_bar()
+                .template("{msg} [{elapsed}] {bar:20.cyan/blue} {pos:>7}/{len:7} ETA: {eta}")
+            {
+                bar.set_style(style);
             }
-        }
+            Some(bar)
+        } else {
+            None
+        };
+
         let mut k = 0;
         let pop_size = self.model.config.population_size;
         loop {
-            // Update velocity and positions
-            self.update_velocity_and_pos();
+            self.update_velocity_and_pos()?;
+            self.model.get_f_values();
+            self.update_best_positions();
 
-            // Evaluate & update best
-            let new_best_f_values = self.model.get_f_values();
-            self.update_best_positions(&new_best_f_values);
-
-            self.model.population = self.model.population.clone();
             k += pop_size;
+            #[cfg(feature = "progress")]
             if let Some(ref bar) = bar {
                 bar.inc(pop_size as u64);
                 bar.set_message(format!("{:.6}", self.model.f_best));
             }
-            if k > self.model.config.t_max || terminate(self.model.f_best) {
+            if k >= self.model.config.t_max || terminate(self.model.f_best) {
                 break;
             }
         }
+
+        #[cfg(feature = "progress")]
         if let Some(ref bar) = bar {
             bar.finish_and_clear();
         }
-        k
+        Ok(k)
     }
 
-    /// Updates the velocity and position of each particle in the population
-    fn update_velocity_and_pos(&mut self) {
-        for i in 0..self.model.config.population_size {
-            let lbest = &self.neigh_population[self.local_best(i)];
-            #[allow(clippy::needless_range_loop)]
+    fn update_velocity_and_pos(&mut self) -> Result<(), PsoError> {
+        let pop_size = self.model.config.population_size;
+        let last_dim = *self.model.config.dimensions.last().unwrap_or(&1);
+        let lr = self.model.config.lr;
+        let c1 = self.model.config.c1;
+        let c2 = self.model.config.c2;
+        let chi = self.chi;
+
+        for i in 0..pop_size {
+            let lbest_i = self.local_best(i);
             for j in 0..self.model.flat_dim {
-                let r1: f64;
-                let r2: f64;
-                if self.seed.is_some() {
-                    r1 = self.seeded_rng.gen_range(-1.0..1.0);
-                    r2 = self.seeded_rng.gen_range(-1.0..1.0);
-                } else {
-                    r1 = self.rng.gen_range(-1.0..1.0);
-                    r2 = self.rng.gen_range(-1.0..1.0);
+                let r1: f64 = self.rng.gen_range(0.0..1.0);
+                let r2: f64 = self.rng.gen_range(0.0..1.0);
+
+                let x_ij = self.model.population[i][j];
+                let pbest_j = self.neigh_population[i][j];
+                let lbest_j = self.neigh_population[lbest_i][j];
+
+                let cog = c1 * r1 * (pbest_j - x_ij);
+                let soc = c2 * r2 * (lbest_j - x_ij);
+                let mut v = chi * (self.velocities[i][j] + cog + soc);
+
+                let bound_index = j % last_dim;
+                let vmax = self.v_max[bound_index];
+                if v.abs() > vmax {
+                    v = v.signum() * vmax;
+                }
+                self.velocities[i][j] = v;
+
+                let x = x_ij + lr * v;
+                if x.is_nan() {
+                    return Err(PsoError::NanCoefficient);
                 }
 
-                let cog = self.model.config.c1
-                    * r1
-                    * (self.neigh_population[i][j] - self.model.population[i][j]).value_f64();
-
-                let soc = self.model.config.c2
-                    * r2
-                    * ((lbest[j] - self.model.population[i][j]).value_f64());
-                let v = self.chi * (self.velocities[i][j].value_f64() + cog + soc);
-
-                // check bounds
-                self.velocities[i][j] = NumericKind::ValueF64(if v.abs() > self.v_max {
-                    v.signum() * self.v_max
-                } else {
-                    v
-                });
-
-                let x = NumericKind::ValueF64(
-                    self.model.population[i][j].value_f64()
-                        + self.model.config.lr * self.velocities[i][j].value_f64(),
-                );
-
-                let bound_index =
-                    j % self.model.config.dimensions[self.model.config.dimensions.len() - 1];
                 let (lower_bound, upper_bound) = self.model.config.bounds[bound_index];
-                // check bounds
-                if x.value_f64() > upper_bound {
-                    self.model.population[i][j] = NumericKind::ValueF64(upper_bound);
-                } else if x.value_f64() < lower_bound {
-                    self.model.population[i][j] = NumericKind::ValueF64(lower_bound);
+                if x > upper_bound {
+                    self.model.population[i][j] = upper_bound;
+                    self.velocities[i][j] = 0.0;
+                } else if x < lower_bound {
+                    self.model.population[i][j] = lower_bound;
+                    self.velocities[i][j] = 0.0;
                 } else {
                     self.model.population[i][j] = x;
                 }
-                if x.value_f64().is_nan() {
-                    panic!("A coefficient became NaN!");
-                }
             }
         }
+        Ok(())
     }
 
-    /// Updates the best found positions
-    fn update_best_positions(&mut self, new_best_f_values: &[f64]) {
+    fn update_best_positions(&mut self) {
         for (i, old) in self.best_f_values.iter_mut().enumerate() {
-            let new = new_best_f_values[i];
+            let new = self.model.population_f_scores[i];
             if new < *old {
                 *old = new;
                 self.neigh_population[i] = self.model.population[i].clone();
             }
         }
-        self.best_f_trajectory.push(self.model.get_f_best());
-        self.best_x_trajectory.push(self.model.get_x_best().clone());
+        if self.model.config.record_trajectory {
+            self.best_f_trajectory.push(self.model.get_f_best());
+            self.best_x_trajectory.push(self.model.get_x_best().clone());
+        }
     }
 
-    /// Returns the neighborhood local best
     fn local_best(&self, i: usize) -> usize {
-        let best = PSO::argsort(&self.best_f_values);
-        for b in best {
-            if self.neighborhoods[i].contains(&b) {
-                return b;
-            }
-        }
-        0
-    }
-
-    /// Create the neighborhood indices for each particle
-    fn create_neighborhoods(model: &Model) -> Vec<Vec<usize>> {
-        let mut neighborhoods;
-        match model.config.neighborhood_type {
-            NeighborhoodType::Lbest => {
-                neighborhoods = vec![];
-                for i in 0..model.config.population_size {
-                    let mut neighbor = vec![];
-                    let first_neighbor = i as i32 - model.config.rho as i32;
-                    let last_neighbor = i as i32 + model.config.rho as i32;
-
-                    for neighbor_i in first_neighbor..last_neighbor {
-                        neighbor.push(if neighbor_i < 0 {
-                            (model.config.population_size as i32 - neighbor_i) as usize
-                        } else {
-                            neighbor_i as usize
-                        });
+        match &self.neighborhoods {
+            Neighborhoods::Gbest => argmin_f(&self.best_f_values).unwrap_or(0),
+            Neighborhoods::Lbest(neigh) => {
+                let mut best_idx = neigh[i].first().copied().unwrap_or(0);
+                let mut best_f = self.best_f_values[best_idx];
+                for &idx in &neigh[i][1..] {
+                    let f = self.best_f_values[idx];
+                    if f < best_f {
+                        best_f = f;
+                        best_idx = idx;
                     }
-                    neighborhoods.push(neighbor)
                 }
-            }
-            NeighborhoodType::Gbest => {
-                neighborhoods = (0..model.config.population_size)
-                    .map(|_| (0..model.config.population_size).collect::<Vec<usize>>())
-                    .collect::<Vec<Vec<usize>>>();
+                best_idx
             }
         }
-        neighborhoods
     }
 
-    /// Returns the indices that would sort a vector
-    fn argsort(v: &[f64]) -> Vec<usize> {
-        let mut idx = (0..v.len()).collect::<Vec<_>>();
-        idx.sort_by(|&i, &j| v[i].partial_cmp(&v[j]).expect("NaN"));
-        idx
-    }
-
-    /// Writes the best found objective function value for all iterations separated by newline characters
-    pub fn write_f_to_file(&self, filepath: &str) -> Result<(), Box<dyn Error>> {
-        let best_f_str: Vec<String> = self
-            .best_f_trajectory
-            .iter()
-            .map(|n| n.to_string())
-            .collect();
-
+    /// Writes the best objective value at each recorded iteration, one per line.
+    pub fn write_f_to_file(&self, filepath: &str) -> Result<(), std::io::Error> {
         let mut file = File::create(filepath)?;
-        writeln!(file, "{}", best_f_str.join("\n"))?;
-
+        writeln!(
+            file,
+            "{}",
+            self.best_f_trajectory
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+        )?;
         Ok(())
     }
 
-    /// Writes the best found minimizer for all iterations
-    ///
-    /// Vector coefficients are comma-separated, and the best vector at each iteration is terminated with a newline character
-    pub fn write_x_to_file(&self, filepath: &str) -> Result<(), Box<dyn Error>> {
-        let best_x_str: Vec<String> = self
-            .best_x_trajectory
-            .iter()
-            .map(|x| {
-                x.iter()
-                    .map(|coef| coef.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            })
-            .collect();
-
+    /// Writes the best position at each recorded iteration (comma-separated coefficients).
+    pub fn write_x_to_file(&self, filepath: &str) -> Result<(), std::io::Error> {
         let mut file = File::create(filepath)?;
-        writeln!(file, "{}", best_x_str.join("\n"))?;
-
+        writeln!(
+            file,
+            "{}",
+            self.best_x_trajectory
+                .iter()
+                .map(|x| {
+                    x.iter()
+                        .map(|coef| coef.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        )?;
         Ok(())
     }
 }
 
-impl fmt::Display for PSO {
+/// Clerc–Kennedy constriction coefficient. Requires `phi = c1 + c2 >= 4`.
+fn constriction_chi(phi: f64) -> f64 {
+    let tmp = (phi * phi - 4.0 * phi).sqrt();
+    2.0 / (2.0 - phi - tmp).abs()
+}
+
+/// Ring of radius `rho` including the particle itself, with modular wrap.
+pub(crate) fn create_neighborhoods(
+    population_size: usize,
+    neighborhood_type: NeighborhoodType,
+    rho: usize,
+) -> Neighborhoods {
+    match neighborhood_type {
+        NeighborhoodType::Gbest => Neighborhoods::Gbest,
+        NeighborhoodType::Lbest => {
+            let n = population_size as i32;
+            let rho = rho as i32;
+            let mut neighborhoods = Vec::with_capacity(population_size);
+            for i in 0..population_size {
+                let mut neighbor = Vec::with_capacity((2 * rho + 1) as usize);
+                for d in -rho..=rho {
+                    let j = ((i as i32 + d) % n + n) % n;
+                    neighbor.push(j as usize);
+                }
+                neighborhoods.push(neighbor);
+            }
+            Neighborhoods::Lbest(neighborhoods)
+        }
+    }
+}
+
+fn argmin_f(v: &[f64]) -> Option<usize> {
+    let mut iter = v.iter().enumerate();
+    let (mut best_i, mut best) = iter.next()?;
+    for (i, val) in iter {
+        if val < best {
+            best = val;
+            best_i = i;
+        }
+    }
+    Some(best_i)
+}
+
+impl<F: ObjectiveFunction> fmt::Display for PSO<F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "PSO {{ chi: {:.6}, v_max: {:.6}, population_size: {}, t_max: {}, lr: {:.4}, c1: {:.4}, c2: {:.4}, f_best: {:.6}, neighborhood: {}, seed: {:?} }}",
+            "PSO {{ chi: {:.6}, v_max: {:?}, population_size: {}, t_max: {}, lr: {:.4}, c1: {:.4}, c2: {:.4}, f_best: {:.6}, neighborhood: {}, seed: {:?} }}",
             self.chi,
             self.v_max,
             self.model.config.population_size,
@@ -293,5 +302,39 @@ impl fmt::Display for PSO {
             self.model.config.neighborhood_type,
             self.seed
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lbest_wraps_at_edges() {
+        let neigh = create_neighborhoods(10, NeighborhoodType::Lbest, 2);
+        match neigh {
+            Neighborhoods::Lbest(n) => {
+                assert_eq!(n[0], vec![8, 9, 0, 1, 2]);
+                assert_eq!(n[9], vec![7, 8, 9, 0, 1]);
+                assert_eq!(n[5], vec![3, 4, 5, 6, 7]);
+                assert_eq!(n.len(), 10);
+                assert!(n.iter().all(|row| row.iter().all(|&j| j < 10)));
+            }
+            Neighborhoods::Gbest => panic!("expected lbest"),
+        }
+    }
+
+    #[test]
+    fn gbest_does_not_allocate_index_table() {
+        match create_neighborhoods(100, NeighborhoodType::Gbest, 2) {
+            Neighborhoods::Gbest => {}
+            Neighborhoods::Lbest(_) => panic!("expected gbest"),
+        }
+    }
+
+    #[test]
+    fn argmin_finds_lowest() {
+        assert_eq!(argmin_f(&[3.0, 1.0, 2.0]), Some(1));
+        assert_eq!(argmin_f(&[]), None);
     }
 }
