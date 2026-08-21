@@ -112,7 +112,9 @@
 pub mod model;
 pub mod pso;
 
-pub use model::{Config, Model, NeighborhoodType, ObjectiveFunction, Particle, Population};
+pub use model::{
+    CacheKind, Config, Model, NeighborhoodType, ObjectiveFunction, Particle, Population,
+};
 pub use pso::PSO;
 
 use rand::SeedableRng;

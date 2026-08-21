@@ -66,6 +66,84 @@ fn it_computes_correct_minimum_rosenbrock_2d() {
 }
 
 #[test]
+fn it_computes_correct_minimum_cached_rosenbrock_2d() {
+    let config = Config {
+        t_max: 1,
+        population_size: 1,
+        progress_bar: false,
+        parallelize: false,
+        cache: Some(1000),
+        cache_kind: CacheKind::FirstIterator,
+        ..Config::default()
+    };
+    let pso = pso_rs::run(config, rosenbrock, |_| false, None).unwrap();
+
+    let mut model = pso.model;
+
+    model.population[0][0] = 2.0;
+    model.population[0][1] = -2.0;
+    model.get_f_values();
+
+    assert_ne!(model.get_f_best(), 0.0);
+
+    model.population[0][0] = 1.0;
+    model.population[0][1] = 1.0;
+    model.get_f_values();
+
+    assert_eq!(model.get_f_best(), 0.0);
+
+    // Repeat the known minimum; the cache should still return 0.
+    model.get_f_values();
+    assert_eq!(model.get_f_best(), 0.0);
+}
+
+#[test]
+fn cache_skips_repeat_objective_calls() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    struct CountingSphere {
+        calls: Arc<AtomicUsize>,
+    }
+    impl ObjectiveFunction for CountingSphere {
+        fn evaluate(&self, particle: &Particle, _flat_dim: usize, _dimensions: &[usize]) -> f64 {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            particle.iter().map(|x| x * x).sum()
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let config = Config {
+        t_max: 1,
+        population_size: 1,
+        progress_bar: false,
+        parallelize: false,
+        cache: Some(16),
+        ..Config::default()
+    };
+    let mut pso = pso_rs::init(
+        config,
+        CountingSphere {
+            calls: Arc::clone(&calls),
+        },
+        Some(7),
+    )
+    .unwrap();
+    let after_init = calls.load(Ordering::SeqCst);
+    assert!(after_init >= 1);
+
+    pso.model.population[0] = vec![0.25, 0.5];
+    pso.model.get_f_values();
+    let after_first = calls.load(Ordering::SeqCst);
+    pso.model.get_f_values();
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        after_first,
+        "second evaluation of the same particle should be a cache hit"
+    );
+}
+
+#[test]
 fn it_computes_correct_minimum_rosenbrock_3d() {
     let config = Config {
         dimensions: vec![3],
